@@ -1,0 +1,9 @@
+language: kotlin
+grammar: tree_sitter_kotlin
+queries:
+  function_definition: "(function_declaration (identifier) @name)"
+  class_definition: "(class_declaration (identifier) @name)"
+  call_expression: "(call_expression (identifier) @name)"
+node_types:
+  function_declaration: function
+  class_declaration: class

@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codepulse"
+version = "0.1.0"
+description = "Code intelligence graph — parse, query, and explore codebases"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "CodePulse Authors" },
+]
+keywords = ["code-graph", "ast", "tree-sitter", "code-intelligence", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "tree-sitter>=0.24",
+    "sqlite-utils>=3.0",
+    "watchdog>=6.0",
+    "mcp>=1.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+python = ["tree-sitter-python>=0.23"]
+typescript = ["tree-sitter-typescript>=0.23"]
+go = ["tree-sitter-go>=0.23"]
+java = ["tree-sitter-java>=0.23"]
+rust = ["tree-sitter-rust>=0.23"]
+ruby = ["tree-sitter-ruby>=0.23"]
+php = ["tree-sitter-php>=0.23"]
+c = ["tree-sitter-c>=0.23"]
+cpp = ["tree-sitter-cpp>=0.23"]
+swift = ["tree-sitter-swift>=0.23"]
+kotlin = ["tree-sitter-kotlin>=0.23"]
+dart = ["tree-sitter-dart>=0.23"]
+scala = ["tree-sitter-scala>=0.23"]
+all = [
+    "codepulse[python,typescript,go,java,rust,ruby,php,c,cpp,swift,kotlin,dart,scala]",
+]
+codegraph = ["codegraph>=1.0"]
+jedi = ["jedi>=0.19"]
+scip = ["protobuf>=5.0"]
+
+[project.urls]
+Homepage = "https://github.com/codepulse/codepulse"
+Repository = "https://github.com/codepulse/codepulse"
+Issues = "https://github.com/codepulse/codepulse/issues"
+
+[project.scripts]
+codepulse = "codepulse.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["codepulse*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+markers = [
+    "smoke: marks tests that index real codebases (slower, depends on external state)",
+    "scip: marks tests that require SCIP CLI and indexers",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ruff.format]
+quote-style = "double"

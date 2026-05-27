@@ -1,0 +1,21 @@
+language: typescript
+grammar: tree_sitter_typescript
+grammar_function: language_typescript
+queries:
+  function_definition: "(function_declaration name: (identifier) @name)"
+  method_definition: "(method_definition name: (property_identifier) @name)"
+  class_definition: "(class_declaration name: (type_identifier) @name)"
+  interface_declaration: "(interface_declaration name: (type_identifier) @name)"
+  import_named: "(import_statement (import_clause (named_imports (import_specifier name: (identifier) @name))))"
+  import_default: "(import_statement (import_clause (identifier) @name))"
+  import_namespace: "(import_statement (import_clause (namespace_import (identifier) @name)))"
+  import_side_effect: "(import_statement (string) @source)"
+  call_bare: "(call_expression function: (identifier) @name)"
+  call_member: "(call_expression function: (member_expression property: (property_identifier) @name))"
+  call_new: "(new_expression constructor: (identifier) @name)"
+  call_new_member: "(new_expression constructor: (member_expression property: (property_identifier) @name))"
+node_types:
+  function_declaration: function
+  method_definition: method
+  class_declaration: class
+  interface_declaration: interface

@@ -1,0 +1,12 @@
+language: java
+grammar: tree_sitter_java
+queries:
+  function_definition: "(method_declaration name: (identifier) @name)"
+  class_definition: "(class_declaration name: (identifier) @name)"
+  interface_declaration: "(interface_declaration name: (identifier) @name)"
+  import_statement: "(import_declaration (scoped_identifier) @name)"
+  call_expression: "(method_invocation name: (identifier) @name)"
+node_types:
+  method_declaration: function
+  class_declaration: class
+  interface_declaration: interface

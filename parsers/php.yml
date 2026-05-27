@@ -1,0 +1,13 @@
+language: php
+grammar: tree_sitter_php
+grammar_function: language_php
+queries:
+  function_definition: "(function_definition name: (name) @name)"
+  class_definition: "(class_declaration name: (name) @name)"
+  interface_declaration: "(interface_declaration name: (name) @name)"
+  import_statement: "(namespace_use_clause (name) @name)"
+  call_expression: "(function_call_expression function: (qualified_name) @name)"
+node_types:
+  function_definition: function
+  class_declaration: class
+  interface_declaration: interface

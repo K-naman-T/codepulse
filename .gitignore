@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+.next/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CodePulse
+.codepulse/
+
+# SCIP
+index.scip
+snapshots/

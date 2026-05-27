@@ -1,0 +1,48 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[python,typescript,go,java,rust,ruby,php,c,cpp,swift,kotlin,scala]"
+          pip install pytest pytest-asyncio pytest-click
+      - name: Run Python tests
+        run: |
+          python -m pytest tests/ -v \
+            --ignore=tests/test_scip.py \
+            --ignore=tests/test_smoke.py \
+            -x
+
+  test-typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Run UI tests
+        run: npx vitest run --config vitest.config.ts

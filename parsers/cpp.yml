@@ -1,0 +1,12 @@
+language: cpp
+grammar: tree_sitter_cpp
+queries:
+  function_definition: "(function_definition declarator: (function_declarator declarator: (identifier) @name))"
+  class_definition: "(class_specifier name: (type_identifier) @name)"
+  struct_definition: "(struct_specifier name: (type_identifier) @name)"
+  call_expression: "(call_expression function: (identifier) @name)"
+  call_member: "(call_expression function: (field_expression field: (field_identifier) @name))"
+node_types:
+  function_definition: function
+  class_specifier: class
+  struct_specifier: class

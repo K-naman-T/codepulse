@@ -1,0 +1,11 @@
+language: swift
+grammar: tree_sitter_swift
+queries:
+  function_definition: "(function_declaration (simple_identifier) @name)"
+  class_definition: "(class_declaration (type_identifier) @name)"
+  protocol_declaration: "(protocol_declaration name: (type_identifier) @name)"
+  call_expression: "(call_expression (simple_identifier) @name)"
+node_types:
+  function_declaration: function
+  class_declaration: class
+  protocol_declaration: interface

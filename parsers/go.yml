@@ -1,0 +1,11 @@
+language: go
+grammar: tree_sitter_go
+queries:
+  function_definition: "(function_declaration name: (identifier) @name)"
+  method_definition: "(method_declaration name: (field_identifier) @name)"
+  struct_definition: "(type_spec name: (type_identifier) @name)"
+  call_expression: "(call_expression function: (identifier) @name)"
+node_types:
+  function_declaration: function
+  method_declaration: method
+  type_spec: class

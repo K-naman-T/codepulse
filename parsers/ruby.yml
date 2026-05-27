@@ -1,0 +1,11 @@
+language: ruby
+grammar: tree_sitter_ruby
+queries:
+  function_definition: "(method name: (identifier) @name)"
+  class_definition: "(class name: (constant) @name)"
+  module_definition: "(module name: (constant) @name)"
+  call_expression: "(call method: (identifier) @name)"
+node_types:
+  method: function
+  class: class
+  module: class

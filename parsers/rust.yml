@@ -1,0 +1,10 @@
+language: rust
+grammar: tree_sitter_rust
+queries:
+  function_definition: "(function_item name: (identifier) @name)"
+  struct_definition: "(struct_item name: (type_identifier) @name)"
+  call_expression: "(call_expression function: (identifier) @name)"
+  call_member: "(call_expression function: (field_expression field: (field_identifier) @name))"
+node_types:
+  function_item: function
+  struct_item: class

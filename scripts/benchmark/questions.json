@@ -1,0 +1,4 @@
+{
+  "raftaar-ai": "How does a request flow through the authentication system in raftaar-ai? Identify the key entry points, middleware, database queries, and response path.",
+  "codepulse": "How does CodePulse parse a TypeScript file and extract symbols? Trace the full flow from CLI to SQLite storage."
+}

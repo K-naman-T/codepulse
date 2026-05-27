@@ -1,0 +1,90 @@
+{
+  "raftaar-ai": {
+    "url": "",
+    "lang": "typescript",
+    "local_path": "/home/knamant/raftaar-ai",
+    "data_dir": "/tmp/codepulse-bench-raftaar",
+    "size_mb": 0,
+    "questions": [
+      "What Express routes are defined in raftaar-ai? List each route path, HTTP method, and the handler function it calls. Search the codebase to find all route definitions.",
+      "Find all uses of the LedgerService class. Which files import it, and what methods are called on it? Search the codebase for every reference."
+    ]
+  },
+  "codepulse": {
+    "url": "",
+    "lang": "python",
+    "local_path": "/home/knamant/codepulse",
+    "data_dir": "/tmp/codepulse-bench-codepulse",
+    "size_mb": 0,
+    "questions": [
+      "Find all Python files in codepulse that define Click CLI commands. List every @cli.command() or @click.command() decorator and the function it decorates. Search the src/codepulse directory.",
+      "What is the full list of classes defined in the codepulse codebase? For each class, list its file path and all methods it defines. Search src/codepulse for all class definitions."
+    ]
+  },
+  "gin": {
+    "url": "https://github.com/gin-gonic/gin.git",
+    "lang": "go",
+    "clone_to": "/tmp/bench-repos/gin",
+    "data_dir": "/tmp/codepulse-bench-gin",
+    "size_mb": 10,
+    "questions": [
+      "Find all exported functions in gin's router.go file. List each function name, its parameters, and what it returns. Read the file and extract every public API.",
+      "Trace how gin.HandlerFunc is used throughout the codebase. Find all files that define or reference this type, and list the handler functions that implement it."
+    ]
+  },
+  "tokio": {
+    "url": "https://github.com/tokio-rs/tokio.git",
+    "lang": "rust",
+    "clone_to": "/tmp/bench-repos/tokio",
+    "data_dir": "/tmp/codepulse-bench-tokio",
+    "size_mb": 16,
+    "questions": [
+      "Find all public structs defined in tokio/src/runtime/ directory. List each struct name, its file, and the key methods implemented on it.",
+      "How does tokio define and use its Task type? Search tokio/src/ for the Task struct definition, all its method implementations, and all places where Task is referenced."
+    ]
+  },
+  "okhttp": {
+    "url": "https://github.com/square/okhttp.git",
+    "lang": "java",
+    "clone_to": "/tmp/bench-repos/okhttp",
+    "data_dir": "/tmp/codepulse-bench-okhttp",
+    "size_mb": 63,
+    "questions": [
+      "List all Interceptor implementations in the okhttp/ directory. For each interceptor class, state which file it's in and what the intercept() method does.",
+      "Find the RealCall class. List all methods defined on it, their file paths, and which other classes call each method."
+    ]
+  },
+  "lua": {
+    "url": "https://github.com/lua/lua.git",
+    "lang": "c",
+    "clone_to": "/tmp/bench-repos/lua",
+    "data_dir": "/tmp/codepulse-bench-lua",
+    "size_mb": 12,
+    "questions": [
+      "List all functions defined in lapi.c. For each function, note whether it's exported (starts with lua_) or internal (static). Read the file and extract every function signature.",
+      "Find all struct definitions in the Lua source code. List each struct name, which header file it's in, and its key fields."
+    ]
+  },
+  "sinatra": {
+    "url": "https://github.com/sinatra/sinatra.git",
+    "lang": "ruby",
+    "clone_to": "/tmp/bench-repos/sinatra",
+    "data_dir": "/tmp/codepulse-bench-sinatra",
+    "size_mb": 8,
+    "questions": [
+      "Find all method definitions in lib/sinatra/base.rb. List each method name and the line number where it's defined. Focus on public methods.",
+      "How does Sinatra define its route matching logic? Search the codebase for where HTTP methods (GET, POST, etc.) are handled and routes are matched against incoming requests."
+    ]
+  },
+  "slim": {
+    "url": "https://github.com/slimphp/Slim.git",
+    "lang": "php",
+    "clone_to": "/tmp/bench-repos/slim",
+    "data_dir": "/tmp/codepulse-bench-slim",
+    "size_mb": 7,
+    "questions": [
+      "Find all class definitions in the Slim/Src/ directory. List each class name, its namespace, and its parent class (if any).",
+      "How does Slim define and register middleware? Search the codebase for middleware-related classes and methods that add or execute middleware."
+    ]
+  }
+}

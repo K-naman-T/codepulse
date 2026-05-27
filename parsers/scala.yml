@@ -1,0 +1,13 @@
+language: scala
+grammar: tree_sitter_scala
+queries:
+  function_definition: "(function_definition name: (identifier) @name)"
+  class_definition: "(class_definition name: (identifier) @name)"
+  trait_definition: "(trait_definition name: (identifier) @name)"
+  object_definition: "(object_definition name: (identifier) @name)"
+  call_expression: "(call_expression function: (identifier) @name)"
+node_types:
+  function_definition: function
+  class_definition: class
+  trait_definition: interface
+  object_definition: class
