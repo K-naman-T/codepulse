@@ -14,13 +14,17 @@ pip install pytest pytest-asyncio pytest-click
 ## Run tests
 
 ```bash
-# Python core (140 tests)
+# Python core
 python3 -m pytest tests/
 
-# Web UI (18 tests)
+# Web UI
+
+```bash
 cd web && npx vitest run
 
-# TypeScript CLI (29 tests)
+# TypeScript CLI
+
+```bash
 cd packages/cli && npx vitest run
 ```
 
