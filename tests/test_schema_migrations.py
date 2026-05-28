@@ -247,6 +247,57 @@ def test_row_to_edge_helper(fresh_db: GraphDB):
     assert edge.confidence == 0.9
 
 
+def test_version_current_but_edges_table_old():
+    """DB with current schema_meta but old edges table must be repaired."""
+    db_path = os.path.join(tempfile.mkdtemp(), "missing_cols_current_version.db")
+    conn = GraphDB(db_path)
+
+    conn.conn.executescript("""
+        CREATE TABLE IF NOT EXISTS schema_meta (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO schema_meta (version) VALUES (1);
+
+        CREATE TABLE IF NOT EXISTS edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT DEFAULT '',
+            line_number INTEGER DEFAULT 0,
+            UNIQUE(source_id, target_id, kind)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+
+        INSERT INTO edges (source_id, target_id, kind, file_path, line_number)
+        VALUES ('mod.py:A', 'mod.py:B', 'calls', 'mod.py', 10);
+    """)
+    conn.conn.commit()
+    conn.close()
+
+    db = GraphDB(db_path)
+    db.initialize()
+
+    cols = _get_columns(db.conn, "edges")
+    for col in ("provenance", "resolution_status", "confidence", "metadata",
+                "line_start", "line_end", "column_start", "column_end"):
+        assert col in cols, f"Missing column: {col}"
+
+    indexes = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='edges'"
+    ).fetchall()
+    assert "idx_edges_reconciliation" in [r["name"] for r in indexes]
+
+    row = db.conn.execute("SELECT * FROM edges").fetchone()
+    assert row["source_id"] == "mod.py:A"
+    assert row["provenance"] == "tree-sitter"
+
+    db.close()
+
+
 def test_edge_defaults_used_when_not_provided(fresh_db: GraphDB):
     a = Node(id="a.py:A", file_path="a.py", name="A", kind="function")
     b = Node(id="a.py:B", file_path="a.py", name="B", kind="function")

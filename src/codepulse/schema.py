@@ -70,6 +70,7 @@ def _recreate_indexes(conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_reconciliation ON edges(provenance, file_path, line_start, column_start, kind);
     """)
 
 
@@ -92,12 +93,14 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     version_row = conn.execute("SELECT MAX(version) FROM schema_meta").fetchone()
     current_version = version_row[0] if version_row and version_row[0] else 0
 
+    _add_edge_columns(conn)
+    _relax_edge_unique_constraint(conn)
+    _recreate_indexes(conn)
+
     if current_version >= CURRENT_SCHEMA_VERSION:
+        conn.commit()
         return
 
     if current_version < 1:
-        _add_edge_columns(conn)
-        _relax_edge_unique_constraint(conn)
-        _recreate_indexes(conn)
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (CURRENT_SCHEMA_VERSION,))
         conn.commit()

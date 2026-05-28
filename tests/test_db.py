@@ -13,6 +13,15 @@ class TestDBSchema:
         assert "edges" in names
         assert "nodes_fts" in names
 
+    def test_initialize_creates_reconciliation_index(self, db: GraphDB):
+        indexes = db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='edges'"
+        ).fetchall()
+        index_names = [r["name"] for r in indexes]
+        assert "idx_edges_reconciliation" in index_names, (
+            f"Missing idx_edges_reconciliation in {index_names}"
+        )
+
     def test_initialize_idempotent(self, db: GraphDB):
         db.initialize()
         db.initialize()

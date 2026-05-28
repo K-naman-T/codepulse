@@ -14,7 +14,8 @@ import warnings
 import pytest
 
 from codepulse.compat.scip import is_scip_available, index_with_scip, _find_scip_indexer
-from codepulse.db import GraphDB
+from codepulse.db import GraphDB, Node
+from codepulse.ids import symbol_node_id
 
 
 def _make_which_fake(
@@ -369,6 +370,61 @@ class TestFindIndexer:
             assert ":Helper.process" in target_id, (
                 f"Edge should target Helper.process, got {target_id!r}"
             )
+
+    def test_reference_inside_pre_existing_function_uses_enclosing_source_id(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        """SCIP reference inside a pre-existing (tree-sitter-pass) function node uses that node as source_id."""
+        main_ts = str(tmp_path / "main.ts")
+        func_node_id = symbol_node_id(main_ts, "start")
+        db.upsert_node(Node(
+            id=func_node_id, file_path=main_ts,
+            name="start", kind="function",
+            line_start=5, line_end=15,
+        ))
+        doc = {
+            "relative_path": "main.ts",
+            "occurrences": [
+                {"symbol": "pkg/Helper#process", "symbol_roles": 0, "range": [10, 4, 10, 15]},
+            ],
+            "symbols": [
+                {"symbol": "pkg/Helper#", "information": {"kind": 4}},
+                {"symbol": "pkg/Helper#process", "information": {"kind": 6}},
+            ],
+        }
+        self._setup_scip_mocks(monkeypatch, tmp_path, [doc])
+        index_with_scip(str(tmp_path), db)
+
+        rows = db.conn.execute("SELECT source_id, target_id FROM edges").fetchall()
+        assert len(rows) > 0, "Expected at least one edge"
+        for source_id, target_id in rows:
+            assert ":start" in source_id, f"source_id should be enclosing 'start', got {source_id!r}"
+            assert source_id != main_ts, "source_id must not be bare file path"
+            assert ":Helper.process" in target_id, f"target_id should be Helper.process, got {target_id!r}"
+
+    def test_scip_edges_bulk_imported_not_one_by_one(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        """SCIP conversion must not call GraphDB.upsert_edge per edge; edges still appear in DB."""
+        call_count = 0
+        def failing_upsert_edge(edge):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("upsert_edge called directly; should use bulk import")
+
+        doc = {
+            "relative_path": "main.ts",
+            "occurrences": [
+                {"symbol": "pkg/Helper#process", "symbol_roles": 0, "range": [10, 4, 10, 15]},
+            ],
+            "symbols": [
+                {"symbol": "pkg/Helper#", "information": {"kind": 4}},
+                {"symbol": "pkg/Helper#process", "information": {"kind": 6}},
+            ],
+        }
+        self._setup_scip_mocks(monkeypatch, tmp_path, [doc])
+        monkeypatch.setattr(db, "upsert_edge", failing_upsert_edge)
+        index_with_scip(str(tmp_path), db)
+
+        rows = db.conn.execute("SELECT count(*) as cnt FROM edges").fetchall()
+        assert call_count == 0
+        assert rows[0]["cnt"] > 0, "Edges should still appear in DB even with monkeypatched upsert_edge"
 
     def test_bad_scip_conversion_does_not_block_other_indexers(self, tmp_path: Path, db: GraphDB, monkeypatch):
         monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)

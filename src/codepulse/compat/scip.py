@@ -184,6 +184,7 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
     symbol_to_node_id: dict[str, str] = {}
     reference_occurrences: list[tuple[str, str, int, int, int, int]] = []
     doc_def_ranges: dict[str, list[tuple[int, int, str]]] = {}
+    scip_edges: list[Edge] = []
 
     for doc in data.get("documents", []):
         rel_path = doc.get("relative_path", "")
@@ -241,6 +242,8 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
 
         doc_def_ranges[full_path] = defs
 
+    _db_enclosures: dict[str, list[tuple[int, int, str]]] = {}
+
     for symbol, full_path, ls, cs, le, ce in reference_occurrences:
         target_id = symbol_to_node_id.get(symbol)
         if not target_id:
@@ -261,6 +264,22 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
                     min_size = size
                     source_id = def_nid
 
+        if full_path not in _db_enclosures:
+            _db_enclosures[full_path] = [
+                (n.line_start, n.line_end, n.id) for n in db.get_nodes_by_file(full_path)
+                if n.line_start > 0 or n.line_end > 0
+            ]
+        for def_ls, def_le, def_nid in _db_enclosures[full_path]:
+            if def_nid == target_id:
+                continue
+            if def_ls <= ls and le <= def_le:
+                if def_ls == 0 and def_le == 0:
+                    continue
+                size = def_le - def_ls
+                if size < min_size:
+                    min_size = size
+                    source_id = def_nid
+
         edge_kind = "calls" if target_kind in ("function", "method") else "imports" if target_kind == "symbol" else "references"
         edge = Edge(
             source_id=source_id,
@@ -276,8 +295,11 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
             resolution_status="resolved",
             metadata={"scip_symbol": symbol},
         )
-        db.upsert_edge(edge)
-        count += 1
+        scip_edges.append(edge)
+
+    if scip_edges:
+        db.bulk_import([], scip_edges)
+    count += len(scip_edges)
 
     return count
 
@@ -287,8 +309,8 @@ def reconcile_scip_edges(db: GraphDB) -> int:
     deleted = db.conn.execute("""
         DELETE FROM edges
         WHERE provenance = 'tree-sitter'
-        AND (file_path, line_start, column_start) IN (
-            SELECT file_path, line_start, column_start
+        AND (file_path, line_start, column_start, kind) IN (
+            SELECT file_path, line_start, column_start, kind
             FROM edges
             WHERE provenance = 'scip'
         )

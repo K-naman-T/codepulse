@@ -119,6 +119,41 @@ class TestReconcileSCIPEdges:
         rows = db.conn.execute("SELECT provenance FROM edges").fetchall()
         assert all(r["provenance"] == "scip" for r in rows)
 
+    def test_reconcile_preserves_different_kind_at_same_location(self, db: GraphDB):
+        """Different-kind tree-sitter and SCIP edges at the same location are both preserved."""
+        db.upsert_edge(Edge(
+            source_id="/test/main.ts:start", target_id="/test/main.ts:bare_proc",
+            kind="calls", file_path="/test/main.ts", line_start=10, column_start=4,
+            provenance="tree-sitter",
+        ))
+        db.upsert_edge(Edge(
+            source_id="/test/main.ts:start", target_id="/test/helper.ts:Helper.process",
+            kind="references", file_path="/test/main.ts", line_start=10, column_start=4,
+            provenance="scip", metadata={"scip_symbol": "pkg/Helper#process"},
+        ))
+        count = reconcile_scip_edges(db)
+        assert count == 0, f"Expected 0 deletions (kinds differ), got {count}"
+        rows = db.conn.execute("SELECT provenance, kind FROM edges").fetchall()
+        assert len(rows) == 2, f"Expected 2 edges, got {len(rows)}"
+
+    def test_reconcile_removes_same_kind_at_same_location(self, db: GraphDB):
+        """Same-kind tree-sitter edge at same (file,line,col) should still be removed."""
+        db.upsert_edge(Edge(
+            source_id="/test/main.ts:start", target_id="/test/main.ts:bare_proc",
+            kind="calls", file_path="/test/main.ts", line_start=10, column_start=4,
+            provenance="tree-sitter",
+        ))
+        db.upsert_edge(Edge(
+            source_id="/test/main.ts:start", target_id="/test/helper.ts:Helper.process",
+            kind="calls", file_path="/test/main.ts", line_start=10, column_start=4,
+            provenance="scip", metadata={"scip_symbol": "pkg/Helper#process"},
+        ))
+        count = reconcile_scip_edges(db)
+        assert count == 1, f"Expected 1 deletion, got {count}"
+        rows = db.conn.execute("SELECT provenance FROM edges").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["provenance"] == "scip"
+
     def test_reconcile_does_not_affect_non_overlapping_edges(self, db: GraphDB):
         db.upsert_edge(Edge(
             source_id="/test/main.ts:start",

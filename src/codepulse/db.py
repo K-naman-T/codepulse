@@ -143,6 +143,11 @@ class GraphDB:
         from codepulse.schema import ensure_schema
         ensure_schema(self.conn)
 
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_edges_reconciliation
+            ON edges(provenance, file_path, line_start, column_start, kind)
+        """)
+
     def upsert_node(self, node: Node) -> str:
         self._upsert_node_raw(node)
         self.conn.commit()
