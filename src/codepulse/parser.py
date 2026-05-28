@@ -253,11 +253,15 @@ class SourceParser:
                             text = lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
                             call_sites.append((text, node.start_point[0] + 1))
 
-        # Build bare-name → node_id map (first occurrence wins for same-name symbols)
+        # Build bare-name → node_id map (first occurrence wins for same-name symbols).
+        # Sort by source position so resolution is deterministic regardless of
+        # tree-sitter capture iteration order.
+        sorted_syms = sorted(
+            (s for s in symbols if s.kind not in ("file", "external_module")),
+            key=lambda s: (s.line_start, s.line_end),
+        )
         name_to_id: dict[str, str] = {}
-        for sym in symbols:
-            if sym.kind in ("file", "external_module"):
-                continue
+        for sym in sorted_syms:
             bare = sym.name.split(".")[-1]
             if bare not in name_to_id:
                 name_to_id[bare] = sym.id

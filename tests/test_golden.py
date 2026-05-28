@@ -28,7 +28,7 @@ GOLDEN = {
         "methods": ["Config.Load", "Config.Validate", "Config.String", "Repository.Save", "Repository.Value"],
         "classes": ["Config", "Repository"],
         "interfaces": [],
-        "call_targets": ["ParseInt"],
+        "call_targets": ["ParseInt", "append", "len"],
         "method_parents": {"Config.Load": "Config", "Config.Validate": "Config", "Config.String": "Config", "Repository.Save": "Repository", "Repository.Value": "Repository"},
     },
     "rust": {
@@ -44,7 +44,7 @@ GOLDEN = {
         "methods": ["User.__init__", "User.get_display_name", "User.save", "Logger.log", "AdminUser.get_display_name"],
         "classes": ["User", "AdminUser", "Logger"],
         "interfaces": [],
-        "call_targets": ["User", "User.save", "get_logger", "Logger.log", "User.get_display_name", "send_email"],
+        "call_targets": ["Logger", "Logger.log", "User", "User.get_display_name", "User.save", "get_logger", "isoformat", "print", "send_email", "super", "upper"],
         "method_parents": {"User.__init__": "User", "User.get_display_name": "User", "User.save": "User", "Logger.log": "Logger", "AdminUser.get_display_name": "AdminUser"},
     },
     "typescript": {
@@ -210,7 +210,9 @@ class GoldenBase:
         actual = {_name_from_id(r.target_id) for r in refs if r.kind == "calls"}
         expected = set(self.GOLDEN.get("call_targets", []))
         missing = expected - actual
+        extras = actual - expected
         assert not missing, f"Missing call targets: {missing}"
+        assert not extras, f"Extra call targets: {extras}"
 
     def test_no_empty_symbols(self, parsed):
         syms, _ = parsed
@@ -232,10 +234,6 @@ class GoldenBase:
 class TestGoldenGo(GoldenBase):
     LANG = "go"
     GOLDEN = GOLDEN["go"]
-
-    def test_methods_have_parent_class(self, parsed):
-        super().test_methods_have_parent_class(parsed)
-
 
 class TestGoldenRust(GoldenBase):
     LANG = "rust"
