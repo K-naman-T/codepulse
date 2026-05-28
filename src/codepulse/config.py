@@ -60,8 +60,11 @@ class CodePulseConfig(BaseSettings):
 
     @classmethod
     def load_for_project(cls, path: str | None = None) -> "CodePulseConfig":
-        if path is not None:
-            candidate = Path(path) / ".codepulse"
-            if candidate.is_dir():
-                return cls(data_dir=str(candidate.resolve()))
-        return cls()
+        config = cls.load()
+        import os as _os
+        if "CODEPULSE_DATA_DIR" not in _os.environ:
+            if path is not None:
+                candidate = Path(path) / ".codepulse"
+                if candidate.is_dir():
+                    config.data_dir = str(candidate.resolve())
+        return config

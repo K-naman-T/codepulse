@@ -91,7 +91,17 @@ class TestCLI:
         assert result.exit_code == 0
         assert "MCP" in result.output
 
-    def test_cli_project_root_in_context(self, runner: CliRunner, tmp_path: Path):
+    def test_cli_data_dir_overrides_project_discovery(self, runner: CliRunner, tmp_path: Path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / ".codepulse").mkdir()
+        custom_dir = tmp_path / "custom"
+        custom_dir.mkdir()
+        result = runner.invoke(cli, ["--data-dir", str(custom_dir), "init", "--path", str(project)])
+        assert result.exit_code == 0
+        assert (project / ".codepulse").exists()
+
+    def test_init_standalone_mode_false(self, runner: CliRunner, tmp_path: Path):
         project = tmp_path / "rootproj"
         project.mkdir()
         result = runner.invoke(cli, ["init", "--path", str(project)])

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -62,12 +63,32 @@ class TestConfigProjectDiscovery:
         expected = (project / ".codepulse").resolve()
         assert Path(config.data_dir).resolve() == expected
 
-    def test_load_for_project_fallback(self):
+    def test_load_for_project_fallback(self, tmp_path: Path):
         config = CodePulseConfig.load_for_project(
-            path="/tmp/nonexistent_codepulse_test_xyz"
+            path=str(tmp_path / "nonexistent")
         )
         assert config.data_dir == "~/.codepulse"
 
     def test_load_for_project_no_path_returns_default(self):
         config = CodePulseConfig.load_for_project()
         assert config.data_dir == "~/.codepulse"
+
+    def test_load_for_project_preserves_env_overrides(self, tmp_path: Path, monkeypatch):
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / ".codepulse").mkdir()
+        monkeypatch.setenv("CODEPULSE_LOG_LEVEL", "DEBUG")
+        config = CodePulseConfig.load_for_project(path=str(project))
+        assert config.log_level == "DEBUG"
+        expected = (project / ".codepulse").resolve()
+        assert Path(config.data_dir).resolve() == expected
+
+    def test_codepulse_data_dir_overrides_project(self, tmp_path: Path, monkeypatch):
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / ".codepulse").mkdir()
+        custom_data_dir = tmp_path / "custom_data"
+        custom_data_dir.mkdir()
+        monkeypatch.setenv("CODEPULSE_DATA_DIR", str(custom_data_dir))
+        config = CodePulseConfig.load_for_project(path=str(project))
+        assert Path(config.data_dir).resolve() == custom_data_dir.resolve()

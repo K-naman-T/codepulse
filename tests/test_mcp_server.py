@@ -62,10 +62,8 @@ class TestMCPServerTools:
 
 
 class TestMCPConfig:
-    def test_create_server_accepts_config(self):
-        config = CodePulseConfig(data_dir="/tmp/mcp_config_test")
+    def test_create_server_accepts_config(self, tmp_path):
+        config = CodePulseConfig(data_dir=str(tmp_path / "mcp_config_test"))
         server = create_server(config=config)
         assert server is not None
-        # The server should be a FastMCP instance with tools
-        import inspect as _inspect
         assert hasattr(server, "list_tools") or hasattr(server, "call_tool")
