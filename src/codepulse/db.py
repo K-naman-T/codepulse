@@ -294,13 +294,16 @@ class GraphDB:
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_node(r) for r in rows]
 
-    def get_callers(self, node_id: str, depth: int = 1) -> list[tuple[Node, str]]:
-        return self._traverse_edges(node_id, depth, direction="incoming")
+    def get_callers(self, node_id: str, depth: int = 1,
+                    edge_kinds: set[str] | None = None) -> list[tuple[Node, str]]:
+        return self._traverse_edges(node_id, depth, direction="incoming", edge_kinds=edge_kinds)
 
-    def get_callees(self, node_id: str, depth: int = 1) -> list[tuple[Node, str]]:
-        return self._traverse_edges(node_id, depth, direction="outgoing")
+    def get_callees(self, node_id: str, depth: int = 1,
+                    edge_kinds: set[str] | None = None) -> list[tuple[Node, str]]:
+        return self._traverse_edges(node_id, depth, direction="outgoing", edge_kinds=edge_kinds)
 
-    def _traverse_edges(self, node_id: str, depth: int, direction: str) -> list[tuple[Node, str]]:
+    def _traverse_edges(self, node_id: str, depth: int, direction: str,
+                        edge_kinds: set[str] | None = None) -> list[tuple[Node, str]]:
         results: list[tuple[Node, str]] = []
         visited: set[str] = set()
         current: set[str] = {node_id}
@@ -313,15 +316,29 @@ class GraphDB:
         for _ in range(depth):
             if not current:
                 break
-            placeholders = ",".join("?" for _ in current)
-            rows = self.conn.execute(
-                f"""SELECT DISTINCT n.*, e.kind as edge_kind
-                    FROM edges e
-                    JOIN nodes n ON n.id = e.{join_col}
-                    WHERE e.{where_col} IN ({placeholders})
-                      AND e.{join_col} NOT IN ({placeholders})""",
-                list(current) + list(current),
-            ).fetchall()
+            cur_phs = ",".join("?" for _ in current)
+            if edge_kinds is not None:
+                if not edge_kinds:
+                    return results
+                kind_phs = ",".join("?" for _ in edge_kinds)
+                rows = self.conn.execute(
+                    f"""SELECT DISTINCT n.*, e.kind as edge_kind
+                        FROM edges e
+                        JOIN nodes n ON n.id = e.{join_col}
+                        WHERE e.{where_col} IN ({cur_phs})
+                          AND e.{join_col} NOT IN ({cur_phs})
+                          AND e.kind IN ({kind_phs})""",
+                    list(current) + list(current) + list(edge_kinds),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    f"""SELECT DISTINCT n.*, e.kind as edge_kind
+                        FROM edges e
+                        JOIN nodes n ON n.id = e.{join_col}
+                        WHERE e.{where_col} IN ({cur_phs})
+                          AND e.{join_col} NOT IN ({cur_phs})""",
+                    list(current) + list(current),
+                ).fetchall()
             next_nodes: set[str] = set()
             for row in rows:
                 node = self._row_to_node(row)
@@ -332,32 +349,105 @@ class GraphDB:
             current = next_nodes
         return results
 
-    def get_impact_radius(self, node_id: str, max_depth: int = 3) -> dict[int, list[Node]]:
+    def get_impact_radius(self, node_id: str, max_depth: int = 3,
+                          edge_kinds: set[str] | None = None) -> dict[int, list[Node]]:
+        if edge_kinds is not None and not edge_kinds:
+            return {}
         result: dict[int, list[Node]] = {}
         visited: set[str] = {node_id}
         current: set[str] = {node_id}
         for depth in range(1, max_depth + 1):
             if not current:
                 break
-            placeholders = ",".join("?" for _ in current)
-            rows = self.conn.execute(
-                f"""SELECT DISTINCT n.*
-                    FROM edges e
-                    JOIN nodes n ON n.id IN (e.source_id, e.target_id)
-                    WHERE (e.source_id IN ({placeholders}) OR e.target_id IN ({placeholders}))
-                      AND n.id NOT IN ({placeholders})""",
-                list(current) + list(current) + list(visited),
-            ).fetchall()
+            cur_phs = ",".join("?" for _ in current)
+            vis_phs = ",".join("?" for _ in visited)
+            if edge_kinds is not None:
+                kind_phs = ",".join("?" for _ in edge_kinds)
+                rows = self.conn.execute(
+                    f"""SELECT DISTINCT n.*
+                        FROM edges e
+                        JOIN nodes n ON n.id IN (e.source_id, e.target_id)
+                        WHERE (e.source_id IN ({cur_phs}) OR e.target_id IN ({cur_phs}))
+                          AND n.id NOT IN ({vis_phs})
+                          AND e.kind IN ({kind_phs})""",
+                    list(current) + list(current) + list(visited) + list(edge_kinds),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    f"""SELECT DISTINCT n.*
+                        FROM edges e
+                        JOIN nodes n ON n.id IN (e.source_id, e.target_id)
+                        WHERE (e.source_id IN ({cur_phs}) OR e.target_id IN ({cur_phs}))
+                          AND n.id NOT IN ({vis_phs})""",
+                    list(current) + list(current) + list(visited),
+                ).fetchall()
             nodes_at_depth: list[Node] = []
+            next_nodes: set[str] = set()
             for row in rows:
                 node = self._row_to_node(row)
                 if node.id not in visited:
                     visited.add(node.id)
                     nodes_at_depth.append(node)
-                    current.add(node.id)
+                    next_nodes.add(node.id)
+            current = next_nodes
             if nodes_at_depth:
                 result[depth] = nodes_at_depth
         return result
+
+    def trace_path(self, source: str, target: str, max_depth: int = 10,
+                   edge_kinds: set[str] | None = None) -> list[Node] | None:
+        if source == target:
+            return None
+        if max_depth < 1:
+            return None
+
+        visited: set[str] = {source}
+        current: set[str] = {source}
+        paths: dict[str, list[str]] = {source: [source]}
+
+        for _ in range(max_depth):
+            if not current:
+                break
+            cur_phs = ",".join("?" for _ in current)
+            vis_phs = ",".join("?" for _ in visited)
+            if edge_kinds is not None:
+                if not edge_kinds:
+                    return None
+                kind_phs = ",".join("?" for _ in edge_kinds)
+                rows = self.conn.execute(
+                    f"""SELECT e.source_id, e.target_id
+                        FROM edges e
+                        WHERE e.source_id IN ({cur_phs})
+                          AND e.target_id NOT IN ({vis_phs})
+                          AND e.kind IN ({kind_phs})""",
+                    list(current) + list(visited) + list(edge_kinds),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    f"""SELECT e.source_id, e.target_id
+                        FROM edges e
+                        WHERE e.source_id IN ({cur_phs})
+                          AND e.target_id NOT IN ({vis_phs})""",
+                    list(current) + list(visited),
+                ).fetchall()
+
+            next_current: set[str] = set()
+            for row in rows:
+                s_id, t_id = row["source_id"], row["target_id"]
+                if t_id not in visited and t_id not in next_current:
+                    next_current.add(t_id)
+                    paths[t_id] = list(paths[s_id]) + [t_id]
+                    if t_id == target:
+                        path_nodes: list[Node] = []
+                        for nid in paths[t_id]:
+                            node = self.get_node(nid)
+                            if node is None:
+                                return None
+                            path_nodes.append(node)
+                        return path_nodes
+            visited.update(next_current)
+            current = next_current
+        return None
 
     def get_nodes_by_file(self, file_path: str, include_synthetic: bool = False) -> list[Node]:
         if include_synthetic:

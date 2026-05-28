@@ -154,3 +154,15 @@ class TestValidateTool:
         assert report.total_nodes >= 5
         assert report.total_edges >= 3
         assert report.orphan_edges == 0
+
+
+class TestTraceTool:
+    def test_trace_main_to_validate(self, cp):
+        result = cp.trace_path("/src/app.py:main", "/src/app.py:validate", max_depth=5)
+        assert result is not None
+        assert result[0].id == "/src/app.py:main"
+        assert result[-1].id == "/src/app.py:validate"
+
+    def test_trace_no_path(self, cp):
+        result = cp.trace_path("/src/app.py:main", "/nonexistent.py:foo", max_depth=5)
+        assert result is None

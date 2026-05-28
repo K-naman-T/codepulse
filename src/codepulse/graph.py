@@ -248,14 +248,21 @@ class CodePulse:
     def search(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:
         return self.db.search_nodes(query, kind=kind, limit=limit)
 
-    def get_callers(self, node_id: str, depth: int = 1) -> list[tuple[Node, str]]:
-        return self.db.get_callers(node_id, depth=depth)
+    def get_callers(self, node_id: str, depth: int = 1,
+                    edge_kinds: set[str] | None = None) -> list[tuple[Node, str]]:
+        return self.db.get_callers(node_id, depth=depth, edge_kinds=edge_kinds)
 
-    def get_callees(self, node_id: str, depth: int = 1) -> list[tuple[Node, str]]:
-        return self.db.get_callees(node_id, depth=depth)
+    def get_callees(self, node_id: str, depth: int = 1,
+                    edge_kinds: set[str] | None = None) -> list[tuple[Node, str]]:
+        return self.db.get_callees(node_id, depth=depth, edge_kinds=edge_kinds)
 
-    def get_impact_radius(self, node_id: str, depth: int = 3) -> dict[int, list[Node]]:
-        return self.db.get_impact_radius(node_id, max_depth=depth)
+    def get_impact_radius(self, node_id: str, depth: int = 3,
+                          edge_kinds: set[str] | None = None) -> dict[int, list[Node]]:
+        return self.db.get_impact_radius(node_id, max_depth=depth, edge_kinds=edge_kinds)
+
+    def trace_path(self, source: str, target: str, max_depth: int = 10,
+                   edge_kinds: set[str] | None = None) -> list[Node] | None:
+        return self.db.trace_path(source, target, max_depth=max_depth, edge_kinds=edge_kinds)
 
     def get_node(self, node_id: str, include_source: bool = False) -> NodeDetail | None:
         node = self.db.get_node(node_id)
