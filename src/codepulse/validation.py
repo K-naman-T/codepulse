@@ -302,6 +302,8 @@ def compare_to_golden(db: GraphDB, manifest: dict) -> GoldenComparison:
         else:
             parent_name_of[nid] = None
 
+    allowed: set[str] = set(manifest.get("allowed_external", []))
+
     # ------------------------------------------------------------------
     # Parse manifest data
     # ------------------------------------------------------------------
@@ -380,11 +382,20 @@ def compare_to_golden(db: GraphDB, manifest: dict) -> GoldenComparison:
     # ------------------------------------------------------------------
     # Index DB edges by (file, source_name, target_name, kind), deduplicating
     db_edge_set: set[tuple[str, str, str, str]] = set()
+    allowed_external_edge_set: set[tuple[str, str, str, str]] = set()
     for r in edge_rows:
         src_name = _node_name_for_edge(r["source_id"], node_info)
         tgt_name = _node_name_for_edge(r["target_id"], node_info)
         key = (_file_key(r["file_path"]), src_name, tgt_name, r["kind"])
         db_edge_set.add(key)
+        target_info = node_info.get(r["target_id"])
+        target_is_external = (
+            (target_info is not None and target_info["kind"] in ("external_module", "unresolved_symbol"))
+            or r["target_id"].startswith("external:")
+            or r["target_id"].startswith("unresolved:")
+        )
+        if target_is_external and tgt_name in allowed:
+            allowed_external_edge_set.add(key)
 
     calls = MetricSet(name="calls")
     imports_m = MetricSet(name="imports")
@@ -394,7 +405,7 @@ def compare_to_golden(db: GraphDB, manifest: dict) -> GoldenComparison:
         db_set = {k for k in db_edge_set if k[3] == kind}
 
         tp = len(m_set & db_set)
-        fp = len(db_set - m_set)
+        fp = len((db_set - m_set) - allowed_external_edge_set)
         fn = len(m_set - db_set)
 
         ms.true_positives = tp

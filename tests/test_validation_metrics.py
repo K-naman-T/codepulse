@@ -277,6 +277,36 @@ class TestCompareToGoldenEdges:
         assert result.imports.false_positives == 0
         assert result.imports.false_negatives == 0
 
+    def test_allowed_external_suppresses_external_edge_fp(self):
+        db = _fresh_db(
+            nodes=[
+                Node(id="/p/accuracy.py:main", name="main", kind="function",
+                     file_path="/p/accuracy.py", line_start=1, line_end=3),
+                Node(id="unresolved:calls:print", name="print", kind="unresolved_symbol",
+                     file_path="/p/accuracy.py", line_start=1, line_end=1),
+            ],
+            edges=[Edge(source_id="/p/accuracy.py:main", target_id="unresolved:calls:print",
+                        kind="calls", file_path="/p/accuracy.py", line_number=2)],
+        )
+        manifest = _manifest(symbols=[], edges=[], allowed_external=["print"])
+        result = compare_to_golden(db, manifest)
+        assert result.calls.false_positives == 0
+
+    def test_allowed_external_does_not_hide_user_edge_fp(self):
+        db = _fresh_db(
+            nodes=[
+                Node(id="/p/accuracy.py:main", name="main", kind="function",
+                     file_path="/p/accuracy.py", line_start=1, line_end=3),
+                Node(id="/p/accuracy.py:print", name="print", kind="function",
+                     file_path="/p/accuracy.py", line_start=5, line_end=7),
+            ],
+            edges=[Edge(source_id="/p/accuracy.py:main", target_id="/p/accuracy.py:print",
+                        kind="calls", file_path="/p/accuracy.py", line_number=2)],
+        )
+        manifest = _manifest(symbols=[], edges=[], allowed_external=["print"])
+        result = compare_to_golden(db, manifest)
+        assert result.calls.false_positives == 1
+
 
 class TestCompareToGoldenParentLinks:
     def test_correct_parent(self):
