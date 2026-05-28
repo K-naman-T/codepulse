@@ -7,7 +7,7 @@ import yaml
 from tree_sitter import Language, Parser, Query, QueryCursor
 
 from codepulse.db import Node, Edge
-from codepulse.ids import symbol_node_id
+from codepulse.ids import file_node_id, symbol_node_id, external_node_id
 
 _DEFINITION_NODE_TYPES = frozenset({
     "function_definition", "async_function_definition", "method_definition",
@@ -110,6 +110,18 @@ class SourceParser:
         symbols: list[Node] = []
         refs: list[Edge] = []
         seen_symbols: set[str] = set()
+        external_ids: set[str] = set()
+
+        file_node_id_val = file_node_id(rel_path)
+        symbols.append(Node(
+            id=file_node_id_val,
+            file_path=rel_path,
+            name=rel_path,
+            kind="file",
+            line_start=1,
+            line_end=1,
+            language=language,
+        ))
 
         node_types = config.get("node_types", {})
 
@@ -185,20 +197,27 @@ class SourceParser:
                         symbol_ranges.append((node_id, sym.line_start, sym.line_end))
 
                     elif query_name.startswith("import_"):
-                        if capture_name == "name":
+                        if capture_name in ("name", "module", "source"):
                             text = lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
+                            if capture_name == "source":
+                                text = text.strip("'\"") if text else text
+                            if not text:
+                                continue
+                            ext_id = external_node_id("module", text)
+                            if ext_id not in external_ids:
+                                external_ids.add(ext_id)
+                                symbols.append(Node(
+                                    id=ext_id,
+                                    file_path=rel_path,
+                                    name=text,
+                                    kind="external_module",
+                                    line_start=1,
+                                    line_end=1,
+                                    language=language,
+                                ))
                             refs.append(Edge(
-                                source_id=rel_path,
-                                target_id=text,
-                                kind="imports",
-                                file_path=rel_path,
-                                line_number=node.start_point[0] + 1,
-                            ))
-                        elif capture_name == "source":
-                            text = lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
-                            refs.append(Edge(
-                                source_id=rel_path,
-                                target_id=text.strip("'\"") if text else text,
+                                source_id=file_node_id_val,
+                                target_id=ext_id,
                                 kind="imports",
                                 file_path=rel_path,
                                 line_number=node.start_point[0] + 1,
@@ -212,13 +231,15 @@ class SourceParser:
         # Build bare-name → node_id map (first occurrence wins for same-name symbols)
         name_to_id: dict[str, str] = {}
         for sym in symbols:
+            if sym.kind in ("file", "external_module"):
+                continue
             bare = sym.name.split(".")[-1]
             if bare not in name_to_id:
                 name_to_id[bare] = sym.id
 
         # Resolve call edges: find enclosing function and target node
         for target_text, line in call_sites:
-            source_id = rel_path
+            source_id = file_node_id_val
             for sym_id, s_start, s_end in reversed(symbol_ranges):
                 if s_start <= line <= s_end:
                     source_id = sym_id

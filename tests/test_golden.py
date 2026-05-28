@@ -208,12 +208,12 @@ class GoldenBase:
 
     def test_all_symbols_have_line_numbers(self, parsed):
         syms, _ = parsed
-        no_lines = [s for s in syms if s.line_start < 1 or s.line_end < 1]
+        no_lines = [s for s in syms if s.line_start < 1 or s.line_end < 1 and s.kind not in ("file", "external_module")]
         assert not no_lines, f"Symbols without line numbers: {[s.name for s in no_lines]}"
 
     def test_no_false_positives(self, parsed):
         syms, _ = parsed
-        known_kinds = {"function", "method", "class", "interface"}
+        known_kinds = {"function", "method", "class", "interface", "file", "external_module"}
         for s in syms:
             assert s.kind in known_kinds, f"Unexpected kind '{s.kind}' for {s.name}"
 

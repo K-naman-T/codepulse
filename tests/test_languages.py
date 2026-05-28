@@ -73,13 +73,14 @@ class TestAllLanguages:
             import os
             os.unlink(fpath)
 
-    def test_empty_file_returns_empty(self, parser: SourceParser):
+    def test_empty_file_returns_file_node(self, parser: SourceParser):
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
             f.write("")
             fpath = f.name
         try:
             symbols, refs = parser.parse_file(fpath)
-            assert symbols == []
+            assert len(symbols) == 1
+            assert symbols[0].kind == "file"
             assert refs == []
         finally:
             import os

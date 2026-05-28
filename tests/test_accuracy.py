@@ -57,6 +57,9 @@ class TestPythonAccuracy:
             short = short.split(".")[-1]
         return short
 
+    def _import_short(self, target_id: str) -> str:
+        return target_id.split(":", 2)[-1] if target_id.startswith("external:") else target_id
+
     def test_calls_detected(self, symbols):
         _, refs = symbols
         call_names = {self._call_short(r) for r in refs if r.kind == "calls"}
@@ -66,7 +69,7 @@ class TestPythonAccuracy:
 
     def test_imports_detected(self, symbols):
         _, refs = symbols
-        import_targets = {r.target_id for r in refs if r.kind == "imports"}
+        import_targets = {self._import_short(r.target_id) for r in refs if r.kind == "imports"}
         expected_imports = {"os", "datetime"}
         found = import_targets & expected_imports
         assert len(found) >= 1, f"No expected imports found in {import_targets}"
@@ -107,7 +110,7 @@ class TestTypeScriptAccuracy:
 
     def test_import_variants_detected(self, symbols):
         _, refs = symbols
-        imports = {r.target_id for r in refs if r.kind == "imports"}
+        imports = {r.target_id.split(":", 2)[-1] for r in refs if r.kind == "imports"}
         assert "readFile" in imports, f"Missing named import 'readFile' in {imports}"
         assert "express" in imports, f"Missing default import 'express' in {imports}"
         assert "fs" in imports, f"Missing namespace import 'fs' in {imports}"

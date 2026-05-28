@@ -67,10 +67,8 @@ class TestOrphanEdges:
         report = cp.validate()
         assert report.orphan_edges == 2
 
-    @pytest.mark.xfail(reason="Edges store file_path as source_id, not node IDs — no edges match nodes")
     def test_validate_on_fixtures_yields_zero_orphans(self):
-        """Indexing real fixture files should produce zero orphan edges.
-        XFAIL: known limitation — edge source_id is file_path, not node ID."""
+        """Indexing real fixture files should produce zero orphan edges."""
         with tempfile.TemporaryDirectory() as tmp:
             config = CodePulseConfig(data_dir=tmp)
             cp = CodePulse(config)

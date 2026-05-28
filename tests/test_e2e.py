@@ -72,8 +72,7 @@ class TestE2E:
         report = cp.validate()
         assert report.total_nodes >= 8
         assert report.total_edges >= 4
-        # Import edges are orphan by design, call edges should resolve
-        assert report.orphan_edges <= 2  # only import edges
+        assert report.orphan_edges == 0
 
         # 4. Search
         results = cp.search("greet")

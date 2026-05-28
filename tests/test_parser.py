@@ -57,7 +57,8 @@ class TestParserEdgeCases:
         f = tmp_path / "empty.py"
         f.write_text("")
         symbols, refs = parser.parse_file(str(f))
-        assert symbols == []
+        assert len(symbols) == 1
+        assert symbols[0].kind == "file"
         assert refs == []
 
     def test_syntax_error_graceful(self, parser, tmp_path: Path):

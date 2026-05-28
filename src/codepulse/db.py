@@ -296,8 +296,11 @@ class GraphDB:
 
         For call edges where target_id doesn't match any node, tries to find
         a node with the matching bare name. Updates edge target_id if a unique
-        match is found. Returns the number of edges resolved.
+        match is found. For truly unresolvable targets, creates an unresolved
+        node so the edge is not orphaned. Returns the number of edges resolved.
         """
+        from codepulse.ids import unresolved_node_id
+
         # Find all call edges with orphan targets
         orphan_rows = self.conn.execute(
             """SELECT e.rowid, e.source_id, e.target_id, e.kind
@@ -334,19 +337,34 @@ class GraphDB:
                 # Multiple matches — prefer same file as source
                 source_file = source_id.rsplit(":", 1)[0] if ":" in source_id else ""
                 same_file = [c for c in candidates if c.startswith(source_file)]
-                if len(same_file) == 1:
+                if len(same_file) >= 1:
                     self.conn.execute(
                         "UPDATE edges SET target_id = ? WHERE rowid = ?",
                         (same_file[0], rowid),
                     )
                     resolved += 1
-                elif len(same_file) > 1:
-                    # Multiple in same file — pick first
-                    self.conn.execute(
-                        "UPDATE edges SET target_id = ? WHERE rowid = ?",
-                        (same_file[0], rowid),
-                    )
-                    resolved += 1
+                else:
+                    # No same-file match — prefer real symbols over external nodes
+                    real = [c for c in candidates if not c.startswith("external:")]
+                    if real:
+                        self.conn.execute(
+                            "UPDATE edges SET target_id = ? WHERE rowid = ?",
+                            (real[0], rowid),
+                        )
+                        resolved += 1
+            else:
+                # No match — create unresolved node so edge is not orphaned
+                unresolved_id = unresolved_node_id("calls", bare_name)
+                source_file = source_id.rsplit(":", 1)[0] if ":" in source_id else ""
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO nodes (id, file_path, name, kind, line_start, line_end) VALUES (?, ?, ?, ?, ?, ?)",
+                    (unresolved_id, source_file, bare_name, "unresolved_symbol", 1, 1),
+                )
+                self.conn.execute(
+                    "UPDATE edges SET target_id = ? WHERE rowid = ?",
+                    (unresolved_id, rowid),
+                )
+                resolved += 1
 
         self.conn.commit()
         return resolved
