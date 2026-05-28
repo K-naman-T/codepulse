@@ -41,6 +41,28 @@ func (c Config) String() string {
 	return fmt.Sprintf("Config(port=%d)", c.Port)
 }
 
+// Repository is a generic storage
+// class: Repository
+type Repository[T any] struct {
+	items []T
+}
+
+// Repository.Save stores a value
+// method: Repository.Save
+func (r *Repository[T]) Save(value T) {
+	r.items = append(r.items, value)
+}
+
+// Repository.Value returns the first item
+// method: Repository.Value
+func (r Repository[T]) Value() T {
+	if len(r.items) == 0 {
+		var zero T
+		return zero
+	}
+	return r.items[0]
+}
+
 // HandleRequest processes an HTTP request
 // function: HandleRequest
 func HandleRequest() string {

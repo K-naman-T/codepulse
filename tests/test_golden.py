@@ -23,12 +23,12 @@ LANG_EXT = {
 GOLDEN = {
     "go": {
         "functions": ["NewConfig", "ParseInt", "HandleRequest"],
-        "methods": ["Load", "Validate", "String"],
-        "classes": ["Config"],
+        "methods": ["Load", "Validate", "String", "Save", "Value"],
+        "classes": ["Config", "Repository"],
         "interfaces": [],
         "call_targets": ["ParseInt"],
         "imports": [],
-        "method_parents": {"Load": "Config", "Validate": "Config", "String": "Config"},
+        "method_parents": {"Load": "Config", "Validate": "Config", "String": "Config", "Save": "Repository", "Value": "Repository"},
     },
     "rust": {
         "functions": ["create_user", "factorial", "run"],
@@ -180,12 +180,16 @@ class GoldenBase:
         expected_parents = self.GOLDEN.get("method_parents", {})
         if not expected_parents:
             return
+        all_ids = {s.id for s in syms}
         for s in syms:
             if s.kind == "method":
                 short = s.name.split(":")[-1].split(".")[-1]
                 if short in expected_parents:
                     assert s.parent_id is not None, (
                         f"Method {short} has no parent_id"
+                    )
+                    assert s.parent_id in all_ids, (
+                        f"Method {short} parent_id {s.parent_id} not found in parsed node IDs"
                     )
                     parent_short = s.parent_id.split(":")[-1]
                     expected = expected_parents[short]

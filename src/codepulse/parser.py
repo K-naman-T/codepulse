@@ -183,6 +183,9 @@ class SourceParser:
                                                         type_node = child
                                                         break
                                             pname = lines[type_node.start_point[0]][type_node.start_point[1]:type_node.end_point[1]]
+                                            bracket_pos = pname.find('[')
+                                            if bracket_pos >= 0:
+                                                pname = pname[:bracket_pos]
                                             parent_id = symbol_node_id(rel_path, pname)
                                         break
 
