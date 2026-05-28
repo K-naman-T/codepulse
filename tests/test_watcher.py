@@ -141,3 +141,38 @@ class TestFileWatcher:
         assert watcher.is_running()
         watcher.stop()
         assert not watcher.is_running()
+
+    def test_watcher_thread_safety(self, cp: CodePulse, tmp_path: Path):
+        _ = cp.db.conn
+        new_file = tmp_path / "thread_test.py"
+        new_file.write_text("def thread_safe():\n    return 42\n")
+        watcher = FileWatcher(str(tmp_path), cp)
+        watcher._on_event(str(new_file))
+
+        errors = []
+        def run():
+            try:
+                watcher.process_pending()
+            except Exception as e:
+                errors.append(e)
+
+        from threading import Thread
+        t = Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=10)
+
+        assert not errors, f"Thread raised: {errors}"
+        assert watcher.last_error is None
+        nodes = cp.search("thread_safe")
+        assert any(n.name == "thread_safe" for n in nodes)
+
+    def test_watcher_error_sets_last_error(self, cp: CodePulse, tmp_path: Path):
+        from unittest.mock import patch
+        watcher = FileWatcher(str(tmp_path), cp)
+        new_file = tmp_path / "fail.py"
+        new_file.write_text("def ok(): pass\n")
+        watcher._on_event(str(new_file))
+        with patch.object(cp, "index_file", side_effect=RuntimeError("index failed")):
+            watcher.process_pending()
+        assert watcher.last_error is not None
+        assert "index failed" in str(watcher.last_error)
