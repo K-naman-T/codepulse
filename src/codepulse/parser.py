@@ -7,6 +7,7 @@ import yaml
 from tree_sitter import Language, Parser, Query, QueryCursor
 
 from codepulse.db import Node, Edge
+from codepulse.ids import symbol_node_id
 
 _DEFINITION_NODE_TYPES = frozenset({
     "function_definition", "async_function_definition", "method_definition",
@@ -153,12 +154,12 @@ class SourceParser:
                                 pname_field = p.child_by_field_name("name")
                                 if pname_field:
                                     pname = lines[pname_field.start_point[0]][pname_field.start_point[1]:pname_field.end_point[1]]
-                                    parent_id = f"{rel_path}:{pname}"
+                                    parent_id = symbol_node_id(rel_path, pname)
                                 break
                             p = p.parent
 
                         full_name = f"{pname}.{name}" if parent_id else name
-                        node_id = f"{rel_path}:{full_name}"
+                        node_id = symbol_node_id(rel_path, full_name)
                         dedup_key = f"{node_id}:{kind}"
                         if dedup_key in seen_symbols:
                             continue
@@ -222,7 +223,7 @@ class SourceParser:
                 if s_start <= line <= s_end:
                     source_id = sym_id
                     break
-            target_id = name_to_id.get(target_text, f"{rel_path}:{target_text}")
+            target_id = name_to_id.get(target_text, symbol_node_id(rel_path, target_text))
             refs.append(Edge(
                 source_id=source_id,
                 target_id=target_id,

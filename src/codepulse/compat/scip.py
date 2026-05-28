@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 
 from codepulse.db import GraphDB, Node, Edge
+from codepulse.ids import symbol_node_id
 
 
 def is_scip_available() -> bool:
@@ -159,7 +160,7 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
                 name, kind = _parse_scip_symbol(symbol)
                 if not name or not kind:
                     continue
-                node_id = f"{full_path}:{name}"
+                node_id = symbol_node_id(full_path, name)
                 symbol_to_node_id[symbol] = node_id
                 existing = db.get_node(node_id)
                 if not existing:
@@ -180,7 +181,7 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
                 continue
             if kind not in ("class", "interface", "function", "method"):
                 continue
-            node_id = f"{full_path}:{name}"
+            node_id = symbol_node_id(full_path, name)
             symbol_to_node_id[symbol] = node_id
             if not db.get_node(node_id):
                 db.upsert_node(Node(
