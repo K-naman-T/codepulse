@@ -18,7 +18,7 @@ import warnings
 from pathlib import Path
 
 from codepulse.db import GraphDB, Node, Edge
-from codepulse.ids import symbol_node_id
+from codepulse.ids import file_node_id, symbol_node_id
 
 
 SKIP_DIRS = frozenset({
@@ -253,7 +253,7 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
         if target_node:
             target_kind = target_node.kind
 
-        source_id = full_path
+        source_id = file_node_id(full_path)
         min_size = float("inf")
         for def_ls, def_le, def_nid in doc_def_ranges.get(full_path, []):
             if def_nid == target_id:
