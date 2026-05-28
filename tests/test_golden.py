@@ -23,12 +23,12 @@ LANG_EXT = {
 GOLDEN = {
     "go": {
         "functions": ["NewConfig", "ParseInt", "HandleRequest"],
-        "methods": ["Load", "Validate"],
+        "methods": ["Load", "Validate", "String"],
         "classes": ["Config"],
         "interfaces": [],
         "call_targets": ["ParseInt"],
         "imports": [],
-        "method_parents": {"Load": "Config", "Validate": "Config"},
+        "method_parents": {"Load": "Config", "Validate": "Config", "String": "Config"},
     },
     "rust": {
         "functions": ["create_user", "factorial", "run"],
@@ -222,7 +222,6 @@ class TestGoldenGo(GoldenBase):
     LANG = "go"
     GOLDEN = GOLDEN["go"]
 
-    @pytest.mark.xfail(reason="Go method parent_id not extracted — needs receiver parsing")
     def test_methods_have_parent_class(self, parsed):
         super().test_methods_have_parent_class(parsed)
 

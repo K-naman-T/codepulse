@@ -170,6 +170,22 @@ class SourceParser:
                                 break
                             p = p.parent
 
+                        if parent_id is None and def_node.type == "method_declaration":
+                            receiver = def_node.child_by_field_name("receiver")
+                            if receiver:
+                                for child in receiver.children:
+                                    if child.type == "parameter_declaration":
+                                        type_node = child.child_by_field_name("type")
+                                        if type_node:
+                                            if type_node.type == "pointer_type":
+                                                for child in type_node.children:
+                                                    if child.type != "*":
+                                                        type_node = child
+                                                        break
+                                            pname = lines[type_node.start_point[0]][type_node.start_point[1]:type_node.end_point[1]]
+                                            parent_id = symbol_node_id(rel_path, pname)
+                                        break
+
                         full_name = f"{pname}.{name}" if parent_id else name
                         node_id = symbol_node_id(rel_path, full_name)
                         dedup_key = f"{node_id}:{kind}"

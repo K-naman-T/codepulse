@@ -35,6 +35,12 @@ func ParseInt(s string) int {
 	return 42
 }
 
+// Config.String returns a string representation
+// method: Config.String
+func (c Config) String() string {
+	return fmt.Sprintf("Config(port=%d)", c.Port)
+}
+
 // HandleRequest processes an HTTP request
 // function: HandleRequest
 func HandleRequest() string {
