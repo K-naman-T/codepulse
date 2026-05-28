@@ -266,7 +266,10 @@ class SourceParser:
             if bare not in name_to_id:
                 name_to_id[bare] = sym.id
 
-        # Resolve call edges: find enclosing function and target node
+        # Resolve call edges: find enclosing function and target node.
+        # Sort by source position so resolution is deterministic regardless of
+        # tree-sitter capture iteration order.
+        symbol_ranges.sort(key=lambda x: (x[1], x[2], x[0]))
         for target_text, line in call_sites:
             source_id = file_node_id_val
             for sym_id, s_start, s_end in reversed(symbol_ranges):
