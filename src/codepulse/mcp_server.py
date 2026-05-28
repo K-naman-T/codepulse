@@ -156,15 +156,30 @@ def create_server() -> "FastMCP":
 
     @mcp.tool()
     def node(node_id: str) -> str:
-        """Get a single symbol's source, signature, and relationships."""
+        """Get a single symbol's source, signature, and relationships.
+        Use symbol IDs from search/context results, NOT file paths."""
         detail = cp.get_node(node_id, include_source=True)
         if detail is None:
-            return "Node not found."
+            return f"Node '{node_id}' not found. Use `search` or `context` to find symbol IDs, or `file` to view symbols in a file path."
         n = detail.node
         lines = [f"## {n.name} ({n.kind})"]
         lines.append(f"**File:** `{n.file_path}:{n.line_start}`")
         if n.signature:
             lines.append(f"```\n{n.signature}\n```")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def file(file_path: str) -> str:
+        """View all symbols in a specific file. Returns symbol names, kinds, and line numbers."""
+        nodes = db.get_nodes_by_file(file_path)
+        if not nodes:
+            return f"No symbols found in '{file_path}'. Check the path matches an indexed file."
+        lines = [f"## Symbols in `{Path(file_path).name}`", ""]
+        lines.append("| Symbol | Kind | Line |")
+        lines.append("|---|---|---|")
+        for n in nodes:
+            lines.append(f"| `{n.name}` | {n.kind} | {n.line_start} |")
+        lines.append(f"\n_{len(nodes)} symbols_")
         return "\n".join(lines)
 
     @mcp.tool()

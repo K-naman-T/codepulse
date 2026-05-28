@@ -86,7 +86,7 @@ class TestCLI:
         assert result.exit_code == 0
         assert "0.1.0" in result.output
 
-    def test_serve_command_exists(self, runner: CliRunner):
-        result = runner.invoke(cli, ["serve", "--help"])
+    def test_mcp_command_exists(self, runner: CliRunner):
+        result = runner.invoke(cli, ["mcp", "--help"])
         assert result.exit_code == 0
-        assert "MCP" in result.output or "serve" in result.output
+        assert "MCP" in result.output

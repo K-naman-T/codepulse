@@ -266,38 +266,100 @@ def validate(ctx: click.Context) -> None:
 
 
 @cli.command()
+@click.argument("output", default=None, required=False)
+@click.option("--format", "-f", "fmt", default="gexf", help="Export format: gexf")
 @click.pass_context
-def serve(ctx: click.Context) -> None:
-    """Start MCP server over stdio for AI agent integration."""
-    from codepulse.mcp import CodePulseMCPServer
-
+def export(ctx: click.Context, output: str | None, fmt: str) -> None:
+    """Export the graph to GEXF for visualization in Gephi Lite."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
-    server = CodePulseMCPServer(cp)
+    db = cp.db
 
-    import sys as _sys
+    nodes = db.conn.execute("SELECT * FROM nodes ORDER BY name").fetchall()
+    edges = db.conn.execute("SELECT * FROM edges").fetchall()
 
-    for line in _sys.stdin:
-        if not line.strip():
-            continue
-        parts = line.strip().split(maxsplit=1)
-        cmd = parts[0] if parts else ""
-        args = parts[1] if len(parts) > 1 else ""
+    _export_gexf(cp, output, nodes, edges)
 
-        if cmd == "search":
-            result = server.search_symbols(args)
-        elif cmd == "callers":
-            result = server.get_callers(args)
-        elif cmd == "impact":
-            result = server.get_impact_radius(args)
-        elif cmd == "context":
-            result = server.find_code(args)
-        elif cmd == "similar":
-            result = server.search_similar(args)
-        elif cmd == "ping":
-            result = "pong"
-        else:
-            result = f"unknown: {cmd}"
 
-        _sys.stdout.write(result + "\n---\n")
-        _sys.stdout.flush()
+def _xml_escape(s: str) -> str:
+    return s.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _export_gexf(
+    cp: "CodePulse", output: str, nodes: list | None = None, edges: list | None = None
+) -> str:
+    db = cp.db
+    if nodes is None:
+        nodes = db.conn.execute("SELECT * FROM nodes ORDER BY name").fetchall()
+    if edges is None:
+        edges = db.conn.execute("SELECT * FROM edges").fetchall()
+
+    node_map = {}
+    for i, n in enumerate(nodes):
+        node_map[n["id"]] = f"n{i}"
+
+    matched_edges = 0
+    edge_xml = []
+    for i, e in enumerate(edges):
+        src = node_map.get(e["source_id"])
+        tgt = node_map.get(e["target_id"])
+        if not tgt:
+            target_node = db.conn.execute(
+                "SELECT id FROM nodes WHERE name = ? LIMIT 1", (e["target_id"],)
+            ).fetchone()
+            if target_node:
+                tgt = node_map.get(target_node["id"])
+        if not src:
+            source_node = db.conn.execute(
+                "SELECT id FROM nodes WHERE file_path = ? LIMIT 1", (e["source_id"],)
+            ).fetchone()
+            if source_node:
+                src = node_map.get(source_node["id"])
+        if src and tgt:
+            ek = _xml_escape(e["kind"])
+            edge_xml.append(f'    <edge id="{i}" source="{src}" target="{tgt}" label="{ek}"/>')
+            matched_edges += 1
+
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    lines.append('<gexf xmlns="http://gexf.net/1.3" version="1.3">')
+    lines.append('<graph defaultedgetype="directed">')
+    lines.append('  <attributes class="node">')
+    lines.append('    <attribute id="kind" title="kind" type="string"/>')
+    lines.append('    <attribute id="file" title="file" type="string"/>')
+    lines.append('    <attribute id="line" title="line" type="integer"/>')
+    lines.append('    <attribute id="language" title="language" type="string"/>')
+    lines.append('  </attributes>')
+
+    lines.append('  <nodes>')
+    for n in nodes:
+        sid = node_map[n["id"]]
+        label_raw = n["name"]
+        label = _xml_escape(label_raw.split(":")[-1] if ":" in label_raw else label_raw)[:80]
+        kind = _xml_escape(n["kind"])
+        file_ = _xml_escape(n["file_path"][:60])
+        lang = _xml_escape(n["language"])
+        lines.append(f'    <node id="{sid}" label="{label}">')
+        lines.append('      <attvalues>')
+        lines.append(f'        <attvalue for="kind" value="{kind}"/>')
+        lines.append(f'        <attvalue for="file" value="{file_}"/>')
+        lines.append(f'        <attvalue for="line" value="{n["line_start"]}"/>')
+        lines.append(f'        <attvalue for="language" value="{lang}"/>')
+        lines.append('      </attvalues>')
+        lines.append('    </node>')
+    lines.append('  </nodes>')
+
+    lines.append('  <edges>')
+    lines.extend(edge_xml)
+    lines.append('  </edges>')
+
+    lines.append('</graph>')
+    lines.append('</gexf>')
+    content = "\n".join(lines)
+
+    if output:
+        Path(output).write_text(content)
+        click.echo(f"Exported {len(nodes)} nodes, {matched_edges} edges to {output}")
+    else:
+        click.echo(content)
+
+    return content

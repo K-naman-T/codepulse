@@ -108,24 +108,6 @@ Then configure your AI agent (OpenCode, Claude Code, Cursor):
 
 The MCP server provides 9 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `status`.
 
-### Web Dashboard
-
-```bash
-# Terminal 1: index your codebase
-codepulse index myproject
-
-# Terminal 2: start the dashboard
-cd web
-CODEPULSE_DB_PATH=~/.codepulse/graph.db npm run dev
-```
-
-Open `http://localhost:3000` to see an interactive force-directed graph of your codebase:
-
-- **Pan/zoom** the D3 force simulation
-- **Click** any node to see symbol details (file, signature, kind)
-- **Search** via FTS5
-- **Node colors**: function=amber, class=blue, method=purple, interface=cyan
-- **Keyboard shortcuts**: `Ctrl+K` search, `Esc` close panel, `R` refresh
 
 ---
 
@@ -188,13 +170,9 @@ codepulse/
 │   ├── compat/scip.py    # SCIP → SQLite converter
 │   ├── embeddings.py     # Semantic similarity search
 │   └── config.py         # Config + env vars
-├── web/                  # Next.js dashboard
-│   ├── app/page.tsx      # Force graph + search + detail panel
-│   ├── components/       # ForceGraph, NodeDetail, StatsBar
-│   └── DESIGN.md         # Design system spec
 ├── packages/cli/         # TypeScript CLI (npm)
 ├── parsers/              # Per-language YAML query configs
-├── tests/                # 124 Python tests
+├── tests/                # 154 Python tests
 │   ├── test_accuracy.py  # Golden file tests
 │   ├── test_languages.py # 17 multi-language tests
 │   ├── test_scip.py      # SCIP resolution accuracy

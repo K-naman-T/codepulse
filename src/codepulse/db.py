@@ -291,6 +291,66 @@ class GraphDB:
         self.conn.execute("DELETE FROM nodes WHERE file_path = ?", (file_path,))
         self.conn.commit()
 
+    def resolve_cross_file_edges(self) -> int:
+        """Resolve orphan call edges by matching target names to known nodes.
+
+        For call edges where target_id doesn't match any node, tries to find
+        a node with the matching bare name. Updates edge target_id if a unique
+        match is found. Returns the number of edges resolved.
+        """
+        # Find all call edges with orphan targets
+        orphan_rows = self.conn.execute(
+            """SELECT e.rowid, e.source_id, e.target_id, e.kind
+               FROM edges e
+               WHERE e.kind = 'calls'
+                 AND e.target_id NOT IN (SELECT id FROM nodes)"""
+        ).fetchall()
+
+        if not orphan_rows:
+            return 0
+
+        # Build name → node_id map from all nodes
+        name_to_ids: dict[str, list[str]] = {}
+        for row in self.conn.execute("SELECT id, name FROM nodes").fetchall():
+            bare = row["name"].split(".")[-1]
+            name_to_ids.setdefault(bare, []).append(row["id"])
+
+        resolved = 0
+        for rowid, source_id, target_id, kind in orphan_rows:
+            # Extract bare name from target_id (last component after ':')
+            bare_name = target_id.split(":")[-1]
+            if "." in bare_name:
+                bare_name = bare_name.split(".")[-1]
+
+            candidates = name_to_ids.get(bare_name, [])
+            if len(candidates) == 1:
+                # Unique match — update the edge
+                self.conn.execute(
+                    "UPDATE edges SET target_id = ? WHERE rowid = ?",
+                    (candidates[0], rowid),
+                )
+                resolved += 1
+            elif len(candidates) > 1:
+                # Multiple matches — prefer same file as source
+                source_file = source_id.rsplit(":", 1)[0] if ":" in source_id else ""
+                same_file = [c for c in candidates if c.startswith(source_file)]
+                if len(same_file) == 1:
+                    self.conn.execute(
+                        "UPDATE edges SET target_id = ? WHERE rowid = ?",
+                        (same_file[0], rowid),
+                    )
+                    resolved += 1
+                elif len(same_file) > 1:
+                    # Multiple in same file — pick first
+                    self.conn.execute(
+                        "UPDATE edges SET target_id = ? WHERE rowid = ?",
+                        (same_file[0], rowid),
+                    )
+                    resolved += 1
+
+        self.conn.commit()
+        return resolved
+
     def get_node_rankings(self, limit: int = 50) -> list[tuple[Node, int]]:
         rows = self.conn.execute(
             """SELECT n.*, COALESCE(ec.edge_count, 0) as edge_count

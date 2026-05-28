@@ -51,9 +51,15 @@ class TestPythonAccuracy:
             if s.kind == "method":
                 assert s.parent_id is not None, f"Method {s.name} has no parent_id"
 
+    def _call_short(self, ref) -> str:
+        short = ref.target_id.split(":")[-1]
+        if "." in short:
+            short = short.split(".")[-1]
+        return short
+
     def test_calls_detected(self, symbols):
         _, refs = symbols
-        call_names = {r.target_id for r in refs if r.kind == "calls"}
+        call_names = {self._call_short(r) for r in refs if r.kind == "calls"}
         expected_calls = {"save", "get_logger", "get_display_name", "send_email", "log"}
         found = call_names & expected_calls
         assert len(found) >= 3, f"Too few calls detected: {found} out of {expected_calls}"
@@ -109,7 +115,7 @@ class TestTypeScriptAccuracy:
 
     def test_call_variants_detected(self, symbols):
         _, refs = symbols
-        calls = {r.target_id for r in refs if r.kind == "calls"}
+        calls = {r.target_id.split(":")[-1] for r in refs if r.kind == "calls"}
         expected = {"listen", "parseInt", "connect", "log", "getFullName", "sendEmail"}
         found = calls & expected
         assert len(found) >= 4, (

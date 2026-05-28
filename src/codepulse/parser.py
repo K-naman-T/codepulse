@@ -7,6 +7,22 @@ from tree_sitter import Language, Parser, Query, QueryCursor
 
 from codepulse.db import Node, Edge
 
+_DEFINITION_NODE_TYPES = frozenset({
+    "function_definition", "async_function_definition", "method_definition",
+    "class_definition", "class_declaration", "class_specifier",
+    "interface_declaration", "struct_definition", "struct_specifier",
+    "trait_definition", "object_definition", "function_declaration",
+    "method_declaration", "function_item", "struct_item",
+    "protocol_declaration", "type_spec", "method", "class", "module",
+})
+
+
+def _find_definition_parent(node) -> Any:
+    p = node.parent
+    while p.parent and p.type not in _DEFINITION_NODE_TYPES:
+        p = p.parent
+    return p
+
 _EXTENSION_MAP: dict[str, str] = {
     ".py": "python",
     ".ts": "typescript",
@@ -94,7 +110,9 @@ class SourceParser:
         seen_symbols: set[str] = set()
 
         node_types = config.get("node_types", {})
-        import_res = config.get("import_resolution", {})
+
+        symbol_ranges: list[tuple[str, int, int]] = []
+        call_sites: list[tuple[str, int]] = []
 
         for query_name, query in queries.items():
             cursor = QueryCursor(query)
@@ -106,6 +124,7 @@ class SourceParser:
                         "function_definition", "async_function_definition",
                         "class_definition", "method_definition",
                         "interface_declaration", "struct_definition",
+                        "trait_definition", "object_definition",
                     ):
                         if capture_name != "name":
                             continue
@@ -117,19 +136,19 @@ class SourceParser:
                             in_class = False
                             check = node.parent.parent
                             while check:
-                                if check.type in ("class_definition", "class_declaration", "class_body"):
+                                if check.type in ("class_definition", "class_declaration", "class_body", "class_specifier", "struct_specifier"):
                                     in_class = True
                                     break
                                 check = check.parent
                             if in_class:
                                 kind = "method"
                         name = lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
-                        parent_node = node.parent
+                        def_node = _find_definition_parent(node)
 
                         parent_id = None
-                        p = parent_node.parent
+                        p = def_node.parent
                         while p:
-                            if p.type in ("class_definition", "class_declaration"):
+                            if p.type in ("class_definition", "class_declaration", "object_definition", "class_specifier", "struct_specifier"):
                                 pname_field = p.child_by_field_name("name")
                                 if pname_field:
                                     pname = lines[pname_field.start_point[0]][pname_field.start_point[1]:pname_field.end_point[1]]
@@ -137,14 +156,15 @@ class SourceParser:
                                 break
                             p = p.parent
 
-                        full_name = f"{parent_id}.{name}" if parent_id else name
+                        full_name = f"{pname}.{name}" if parent_id else name
                         node_id = f"{rel_path}:{full_name}"
-                        if node_id in seen_symbols:
+                        dedup_key = f"{node_id}:{kind}"
+                        if dedup_key in seen_symbols:
                             continue
-                        seen_symbols.add(node_id)
+                        seen_symbols.add(dedup_key)
 
-                        sig_start = parent_node.start_point[0]
-                        sig_end = parent_node.end_point[0]
+                        sig_start = def_node.start_point[0]
+                        sig_end = def_node.end_point[0]
                         sig_lines = lines[sig_start:sig_end + 1]
                         sig_text = " ".join(s.strip() for s in sig_lines if s.strip())
 
@@ -154,12 +174,13 @@ class SourceParser:
                             name=full_name,
                             kind=kind,
                             signature=sig_text[:500],
-                            line_start=parent_node.start_point[0] + 1,
-                            line_end=parent_node.end_point[0] + 1,
+                            line_start=def_node.start_point[0] + 1,
+                            line_end=def_node.end_point[0] + 1,
                             parent_id=parent_id,
                             language=language,
                         )
                         symbols.append(sym)
+                        symbol_ranges.append((node_id, sym.line_start, sym.line_end))
 
                     elif query_name.startswith("import_"):
                         if capture_name == "name":
@@ -184,12 +205,29 @@ class SourceParser:
                     elif query_name.startswith("call_") or query_name in ("call", "call_expression"):
                         if capture_name == "name":
                             text = lines[node.start_point[0]][node.start_point[1]:node.end_point[1]]
-                            refs.append(Edge(
-                                source_id=rel_path,
-                                target_id=text,
-                                kind="calls",
-                                file_path=rel_path,
-                                line_number=node.start_point[0] + 1,
-                            ))
+                            call_sites.append((text, node.start_point[0] + 1))
+
+        # Build bare-name → node_id map (first occurrence wins for same-name symbols)
+        name_to_id: dict[str, str] = {}
+        for sym in symbols:
+            bare = sym.name.split(".")[-1]
+            if bare not in name_to_id:
+                name_to_id[bare] = sym.id
+
+        # Resolve call edges: find enclosing function and target node
+        for target_text, line in call_sites:
+            source_id = rel_path
+            for sym_id, s_start, s_end in reversed(symbol_ranges):
+                if s_start <= line <= s_end:
+                    source_id = sym_id
+                    break
+            target_id = name_to_id.get(target_text, f"{rel_path}:{target_text}")
+            refs.append(Edge(
+                source_id=source_id,
+                target_id=target_id,
+                kind="calls",
+                file_path=rel_path,
+                line_number=line,
+            ))
 
         return symbols, refs

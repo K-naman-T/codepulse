@@ -72,6 +72,12 @@ class CodePulse:
             )
         ]
 
+        # Remove stale data for the indexed path before re-indexing
+        resolved = str(search_path.resolve())
+        self.db.conn.execute("DELETE FROM edges WHERE file_path LIKE ?", [f"{resolved}%"])
+        self.db.conn.execute("DELETE FROM nodes WHERE file_path LIKE ?", [f"{resolved}%"])
+        self.db.conn.commit()
+
         for file_path in files:
             try:
                 if on_progress:
@@ -93,6 +99,11 @@ class CodePulse:
 
         if batch_nodes:
             self.db.bulk_import(batch_nodes, batch_edges)
+
+        # Resolve cross-file call edges by matching target names to known nodes
+        resolved_count = self.db.resolve_cross_file_edges()
+        if resolved_count and on_progress:
+            on_progress(f"Resolved {resolved_count} cross-file calls")
 
         if self.config.use_scip:
             try:
@@ -185,6 +196,11 @@ class CodePulse:
         nodes_with_parent = conn.execute(
             "SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL"
         ).fetchone()[0]
+        orphan_edges = conn.execute("""
+            SELECT COUNT(*) FROM edges e
+            WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = e.source_id)
+               OR NOT EXISTS (SELECT 1 FROM nodes WHERE id = e.target_id)
+        """).fetchone()[0]
 
         return ValidationReport(
             total_files=total_files,
@@ -195,6 +211,7 @@ class CodePulse:
             by_language=lang_counts,
             nodes_with_parent=nodes_with_parent,
             orphan_parent_refs=orphans,
+            orphan_edges=orphan_edges,
         )
 
     def close(self) -> None:
@@ -212,6 +229,7 @@ class ValidationReport:
     by_language: dict[str, int] = field(default_factory=dict)
     nodes_with_parent: int = 0
     orphan_parent_refs: int = 0
+    orphan_edges: int = 0
 
     def summary(self) -> str:
         lines = []
@@ -236,4 +254,8 @@ class ValidationReport:
             lines.append(f"  ⚠  Orphan parent refs: {self.orphan_parent_refs}")
         else:
             lines.append("  No orphan refs")
+        if self.orphan_edges:
+            lines.append(f"  ⚠  Orphan edges: {self.orphan_edges}")
+        else:
+            lines.append("  No orphan edges")
         return "\n".join(lines)

@@ -44,7 +44,7 @@ cd web && CODEPULSE_DB_PATH=~/.codepulse/graph.db npm run dev
 ## Project structure
 
 - `src/codepulse/` — Python core (parser, graph, CLI, MCP)
-- `web/` — Next.js dashboard with D3 force graph
+<!--- `web/` removed — visual dashboard was scrapped -->
 - `packages/cli/` — TypeScript CLI shell
 - `parsers/` — Per-language tree-sitter query configs
 - `tests/` — Python test suite
