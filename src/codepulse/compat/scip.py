@@ -14,10 +14,33 @@ Requires:
 import json
 import os
 import subprocess
+import warnings
 from pathlib import Path
 
 from codepulse.db import GraphDB, Node, Edge
 from codepulse.ids import symbol_node_id
+
+
+SKIP_DIRS = frozenset({
+    "node_modules", ".git", "__pycache__", "dist", "build",
+    ".next", "venv", ".venv", "target", ".tox", ".codepulse",
+})
+
+
+def _is_in_skipped_dir(path: Path, root: Path) -> bool:
+    try:
+        rel = path.relative_to(root)
+        return any(part in SKIP_DIRS for part in rel.parts)
+    except ValueError:
+        return False
+
+
+def _has_source_files(root: Path, *patterns: str) -> bool:
+    for pattern in patterns:
+        for p in root.rglob(pattern):
+            if not _is_in_skipped_dir(p, root):
+                return True
+    return False
 
 
 def is_scip_available() -> bool:
@@ -31,22 +54,20 @@ def is_scip_available() -> bool:
         return False
 
 
-def _find_scip_indexer(project_root: str) -> list[str]:
+def _find_scip_indexer(project_root: str) -> list[tuple[str, str]]:
     root = Path(project_root)
-    has_ts_files = bool(list(root.rglob("*.ts")) + list(root.rglob("*.tsx")))
-    has_py_files = bool(list(root.rglob("*.py")))
-    has_ts_config = (root / "tsconfig.json").exists() or (root / "package.json").exists() or has_ts_files
-    has_py_config = has_py_files
+    indexers: list[tuple[str, str]] = []
 
-    indexers: list[str] = []
-    if has_ts_config:
+    if _has_source_files(root, "*.ts", "*.tsx"):
         ts_idx = _which("scip-typescript")
         if ts_idx:
-            indexers.append(ts_idx)
-    if has_py_config:
+            indexers.append(("typescript", ts_idx))
+
+    if _has_source_files(root, "*.py"):
         py_idx = _which("scip-python")
         if py_idx:
-            indexers.append(py_idx)
+            indexers.append(("python", py_idx))
+
     return indexers
 
 
@@ -78,8 +99,9 @@ def index_with_scip(project_root: str, db: GraphDB) -> int:
     scip_output_dir.mkdir(parents=True, exist_ok=True)
 
     total_count = 0
-    for indexer in indexers:
-        lang = "python" if "scip-python" in indexer else "typescript"
+    successes: list[str] = []
+    failures: list[str] = []
+    for lang, indexer in indexers:
         output_file = scip_output_dir / f"{lang}.scip"
         try:
             result = subprocess.run(
@@ -88,13 +110,20 @@ def index_with_scip(project_root: str, db: GraphDB) -> int:
             )
             if result.returncode != 0:
                 raise RuntimeError(f"Indexer {indexer} failed: {result.stderr[:500]}")
-        except FileNotFoundError:
-            raise RuntimeError(f"Indexer not found: {indexer}")
+            if output_file.exists():
+                total_count += _convert_scip_to_graph(str(output_file), db, project_root)
+            successes.append(lang)
+        except (FileNotFoundError, RuntimeError) as e:
+            failures.append(f"{lang} ({indexer}): {e}")
 
-        if output_file.exists():
-            total_count += _convert_scip_to_graph(str(output_file), db, project_root)
+    if successes:
+        if failures:
+            warnings.warn(f"Some SCIP indexers failed: {'; '.join(failures)}")
+        return total_count
 
-    return total_count
+    if failures:
+        raise RuntimeError(f"All SCIP indexers failed: {'; '.join(failures)}")
+    raise RuntimeError("No SCIP indexer found for this project")
 
 
 def _parse_scip_symbol(symbol: str) -> tuple[str, str | None]:

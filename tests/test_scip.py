@@ -9,16 +9,25 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import warnings
+
 import pytest
 
 from codepulse.compat.scip import is_scip_available, index_with_scip, _find_scip_indexer
 from codepulse.db import GraphDB
 
 
-pytestmark = pytest.mark.skipif(
-    not is_scip_available(),
-    reason="scip CLI not installed"
-)
+def _make_which_fake(
+    scip_typescript: str | None = "/usr/local/bin/scip-typescript",
+    scip_python: str | None = "/usr/local/bin/scip-python",
+):
+    def fake_which(name: str) -> str | None:
+        if name == "scip-typescript":
+            return scip_typescript
+        if name == "scip-python":
+            return scip_python
+        return None
+    return fake_which
 
 
 def _make_scip_document(relative_path: str) -> dict:
@@ -91,39 +100,45 @@ def db():
 
 
 class TestFindIndexer:
-    """Tests for _find_scip_indexer — these do not need real indexers beyond availability."""
+    """Tests for _find_scip_indexer with mocked _which."""
 
-    def test_returns_list(self, ts_project: Path):
+    def test_returns_list(self, ts_project: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         indexers = _find_scip_indexer(str(ts_project))
         assert isinstance(indexers, list)
 
-    def test_returns_empty_list_for_empty_project(self, tmp_path: Path):
+    def test_returns_empty_list_for_empty_project(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         indexers = _find_scip_indexer(str(tmp_path))
         assert isinstance(indexers, list)
         assert len(indexers) == 0
 
-    def test_detects_typescript_indexer(self, ts_project: Path):
+    def test_detects_typescript_indexer(self, ts_project: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         indexers = _find_scip_indexer(str(ts_project))
         assert len(indexers) > 0
-        assert any("scip-typescript" in i for i in indexers)
+        assert any("scip-typescript" in cmd for _, cmd in indexers)
 
-    def test_detects_python_indexer_nested(self, tmp_path: Path):
+    def test_detects_python_indexer_nested(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         pkg = tmp_path / "src" / "pkg"
         pkg.mkdir(parents=True)
         (pkg / "__init__.py").write_text("")
         (pkg / "module.py").write_text("x = 1")
         indexers = _find_scip_indexer(str(tmp_path))
-        assert any("scip-python" in i for i in indexers)
+        assert any("scip-python" in cmd for _, cmd in indexers)
 
-    def test_detects_typescript_indexer_nested(self, tmp_path: Path):
+    def test_detects_typescript_indexer_nested(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         app = tmp_path / "packages" / "app" / "src"
         app.mkdir(parents=True)
         (app / "index.ts").write_text("export const x = 1;")
         (tmp_path / "tsconfig.json").write_text("{}")
         indexers = _find_scip_indexer(str(tmp_path))
-        assert any("scip-typescript" in i for i in indexers)
+        assert any("scip-typescript" in cmd for _, cmd in indexers)
 
-    def test_detects_mixed_project(self, tmp_path: Path):
+    def test_detects_mixed_project(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         pkg = tmp_path / "src" / "pkg"
         pkg.mkdir(parents=True)
         (pkg / "__init__.py").write_text("")
@@ -133,11 +148,42 @@ class TestFindIndexer:
         (app / "index.ts").write_text("export const x = 1;")
         (tmp_path / "tsconfig.json").write_text("{}")
         indexers = _find_scip_indexer(str(tmp_path))
-        assert any("scip-python" in i for i in indexers)
-        assert any("scip-typescript" in i for i in indexers)
+        assert any("scip-python" in cmd for _, cmd in indexers)
+        assert any("scip-typescript" in cmd for _, cmd in indexers)
+
+    def test_skipped_dirs_ignored(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        (tmp_path / "node_modules" / "pkg" / "index.ts").parent.mkdir(parents=True)
+        (tmp_path / "node_modules" / "pkg" / "index.ts").write_text("")
+        (tmp_path / ".venv" / "lib" / "python3.12" / "site-packages" / "mod.py").parent.mkdir(parents=True)
+        (tmp_path / ".venv" / "lib" / "python3.12" / "site-packages" / "mod.py").write_text("")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert len(indexers) == 0
+
+    def test_package_json_alone_does_not_trigger_ts(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        (tmp_path / "package.json").write_text("{}")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert not any(lang == "typescript" for lang, _ in indexers)
+
+    def test_pyproject_toml_alone_does_not_trigger_python(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        (tmp_path / "pyproject.toml").write_text("")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert not any(lang == "python" for lang, _ in indexers)
+
+    def test_indexer_not_installed_returns_empty(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake(scip_typescript=None, scip_python=None))
+        src = tmp_path / "src"
+        src.mkdir(parents=True)
+        (src / "index.ts").write_text("")
+        (src / "mod.py").write_text("")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert len(indexers) == 0
 
     def test_output_path_is_dot_codepulse_scip(self, ts_project: Path, db: GraphDB, monkeypatch):
-        """SCIP output goes to .codepulse/scip/<language>.scip, never project root."""
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
         _mock_indexing_subprocess(
             monkeypatch,
             ts_project / ".codepulse" / "scip",
@@ -150,8 +196,49 @@ class TestFindIndexer:
         assert len(scip_files) >= 1, f"Expected .scip files in {scip_dir}"
         assert not (ts_project / "index.scip").exists(), "Must not write to project root"
 
+    def test_mixed_indexers_continue_on_failure(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+        calls = []
+
+        def tracking_run(args, **kwargs):
+            calls.append(" ".join(args))
+            args_str = " ".join(args)
+            if "scip-python" in args_str:
+                raise FileNotFoundError(f"No such file: {args[0]}")
+            if "--output" in args_str:
+                idx = args.index("--output")
+                out = Path(args[idx + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps({"documents": []}))
+            if "print" in args_str and "--json" in args_str:
+                return type("Result", (), {"returncode": 0, "stdout": json.dumps({"documents": []}), "stderr": ""})()
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", tracking_run)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            count = index_with_scip(str(tmp_path), db)
+            assert count == 0
+            assert any("scip-typescript" in c for c in calls), "TS indexer should have been attempted"
+            assert any("scip-python" in c for c in calls), "Python indexer should have been attempted"
+            assert any("scip-python" in str(warning.message) for warning in w), "Python failure should be warned"
+
 
 class TestSCIPIntegration:
+    pytestmark = pytest.mark.skipif(
+        not is_scip_available(),
+        reason="scip CLI not installed"
+    )
+
     def test_scip_available(self):
         assert is_scip_available()
 
@@ -166,7 +253,7 @@ class TestSCIPIntegration:
     def test_scip_indexer_detected(self, ts_project: Path):
         indexers = _find_scip_indexer(str(ts_project))
         assert len(indexers) > 0
-        assert any("scip-typescript" in i for i in indexers)
+        assert any("scip-typescript" in cmd for _, cmd in indexers)
 
     def test_scip_indexes_and_creates_nodes(self, ts_project: Path, db: GraphDB):
         count = index_with_scip(str(ts_project), db)
