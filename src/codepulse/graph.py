@@ -179,6 +179,70 @@ class CodePulse:
 
         return result
 
+    def index_file(self, path: str) -> None:
+        """Incrementally index a single file, replacing stale data for it."""
+        resolved = str(Path(path).resolve())
+        conn = self.db.conn
+
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute("DELETE FROM edges WHERE file_path = ?", (resolved,))
+            conn.execute(
+                "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                (resolved,),
+            )
+            conn.execute(
+                "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                (resolved,),
+            )
+            conn.execute("DELETE FROM nodes WHERE file_path = ?", (resolved,))
+            conn.execute("DELETE FROM files WHERE path = ?", (resolved,))
+
+            symbols, refs = self.parser.parse_file(resolved)
+            for sym in symbols:
+                self.db._upsert_node_raw(sym)
+            for ref in refs:
+                self.db._upsert_edge_raw(ref)
+
+            lang = self.parser.detect_language(resolved) or ""
+            try:
+                content_hash = hashlib.md5(open(resolved, "rb").read()).hexdigest()
+            except OSError:
+                content_hash = ""
+            conn.execute(
+                "INSERT OR REPLACE INTO files (path, language, content_hash) VALUES (?, ?, ?)",
+                (resolved, lang, content_hash),
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        self.db.resolve_cross_file_edges()
+
+    def delete_file(self, path: str) -> None:
+        """Remove all graph data for a file."""
+        resolved = str(Path(path).resolve())
+        conn = self.db.conn
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute("DELETE FROM edges WHERE file_path = ?", (resolved,))
+            conn.execute(
+                "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                (resolved,),
+            )
+            conn.execute(
+                "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                (resolved,),
+            )
+            conn.execute("DELETE FROM nodes WHERE file_path = ?", (resolved,))
+            conn.execute("DELETE FROM files WHERE path = ?", (resolved,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
     def search(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:
         return self.db.search_nodes(query, kind=kind, limit=limit)
 
