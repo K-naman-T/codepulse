@@ -430,8 +430,8 @@ def golden_db_for_python(db):
 class TestAccuracyPythonIntegration:
     def test_all_symbols_high_precision(self, golden_db_for_python, python_golden_manifest):
         result = compare_to_golden(golden_db_for_python, python_golden_manifest)
-        assert result.symbols.true_positives == 12, (
-            f"Expected 12 TP symbols, got {result.symbols.true_positives}"
+        assert result.symbols.true_positives == 18, (
+            f"Expected 18 TP symbols, got {result.symbols.true_positives}"
         )
         assert result.symbols.false_positives == 0
         assert result.symbols.false_negatives == 0
@@ -440,8 +440,8 @@ class TestAccuracyPythonIntegration:
 
     def test_calls_imports_detected(self, golden_db_for_python, python_golden_manifest):
         result = compare_to_golden(golden_db_for_python, python_golden_manifest)
-        # Expected: 13 calls and 2 imports; require at least the 0.85 recall threshold.
-        assert result.calls.true_positives >= 11, (
+        # Expected: 18 calls and 2 imports; require at least the 0.85 recall threshold.
+        assert result.calls.true_positives >= 15, (
             f"calls TP: {result.calls.true_positives}"
         )
         assert result.imports.true_positives == 2, (

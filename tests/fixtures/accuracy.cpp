@@ -1,4 +1,11 @@
+#include <string>
+
 class Counter {
+public:
+    Counter() : value(0) {}
+    ~Counter() {}
+    int getValue() const { return value; }
+private:
     int value;
 };
 

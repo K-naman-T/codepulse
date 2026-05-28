@@ -1,9 +1,4 @@
 /* Accuracy test fixture: TypeScript — must contain exactly these symbols and calls. */
-/* Expected: 2 classes (Database, UserService), 2 interfaces (User, Config)   */
-/* Expected: 2 functions (start, initialize)                                  */
-/* Expected calls: listen, parseInt, connect, log, getFullName, sendEmail      */
-/* Expected imports: named (readFile), default (express), namespace (fs),      */
-/*   side-effect (dotenv)                                                     */
 
 import { readFile } from 'fs/promises';
 import express from 'express';
@@ -21,6 +16,10 @@ interface Config {
   port: number;
   database: string;
 }
+
+type Alias = string;
+
+enum Direction { Up, Down }
 
 class Database {
   private url: string;
@@ -49,6 +48,26 @@ class UserService {
   }
 }
 
+export class ExportedClass {
+  value: string;
+
+  constructor(val: string) {
+    this.value = val;
+  }
+
+  getValue<T>(key: T): string {
+    return this.value;
+  }
+}
+
+export default class DefaultClass {
+  run(): void {
+    log("default");
+  }
+}
+
+const arrowFn = (x: number): number => x * 2;
+
 function start(port: number): void {
   const server = express();
   server.listen(port, () => {
@@ -67,4 +86,11 @@ function log(message: string): void {
 
 function connect(url: string): Promise<any> {
   return fetch(url);
+}
+
+function demo(): void {
+  const obj = new ExportedClass("test");
+  const val = obj?.getValue("key");
+  log(val);
+  Direction.Up;
 }

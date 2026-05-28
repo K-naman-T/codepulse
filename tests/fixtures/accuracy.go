@@ -2,6 +2,21 @@ package main
 
 import "fmt"
 
+// Reader interface for reading data
+type Reader interface {
+	Read([]byte) (int, error)
+}
+
+// NewReader creates a generic reader
+func NewReader[T any](size T) *Reader {
+	return nil
+}
+
+// init sets up defaults
+func init() {
+	fmt.Println("init")
+}
+
 // Config holds application settings
 // class: Config
 type Config struct {

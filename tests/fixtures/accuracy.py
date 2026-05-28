@@ -2,6 +2,8 @@
 
 import os
 from datetime import datetime
+from os.path import join as path_join
+from . import sibling_module
 
 
 class User:
@@ -10,6 +12,7 @@ class User:
     def __init__(self, name: str, email: str):
         self.name = name
         self.email = email
+        self._name = name
 
     def get_display_name(self) -> str:
         return self.name.upper()
@@ -17,6 +20,18 @@ class User:
     def save(self) -> bool:
         print("saving user")
         return True
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'User':
+        return cls(data['name'], data['email'])
+
+    @staticmethod
+    def validate_email(email: str) -> bool:
+        return '@' in email
+
+    @property
+    def domain(self) -> str:
+        return self._name.split('@')[1]
 
 
 class AdminUser(User):
@@ -48,15 +63,18 @@ def get_logger():
     return Logger()
 
 
-# Expected: 3 classes (User, AdminUser, Logger), 7 functions/methods
-# Expected call edges: 
-#   create_user → User.__init__ (via User(name, email))
-#   create_user → user.save
-#   create_user → get_logger
-#   create_user → logger.log
-#   AdminUser.get_display_name → User.get_display_name (via super())
-#   send_welcome_email → user.get_display_name
-#   send_welcome_email → send_email
+async def fetch_data(url: str) -> dict:
+    result = await get(url)
+    return result.json()
+
+
+def outer_function():
+    x = 10
+
+    def inner_function():
+        return x + 5
+
+    return inner_function()
 
 
 class Logger:
