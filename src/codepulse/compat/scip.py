@@ -113,7 +113,7 @@ def index_with_scip(project_root: str, db: GraphDB) -> int:
             if output_file.exists():
                 total_count += _convert_scip_to_graph(str(output_file), db, project_root)
             successes.append(lang)
-        except (FileNotFoundError, RuntimeError) as e:
+        except Exception as e:
             failures.append(f"{lang} ({indexer}): {e}")
 
     if successes:

@@ -232,6 +232,103 @@ class TestFindIndexer:
             assert any("scip-python" in c for c in calls), "Python indexer should have been attempted"
             assert any("scip-python" in str(warning.message) for warning in w), "Python failure should be warned"
 
+    def test_timeout_failure_does_not_block_other_indexers(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+        calls = []
+
+        def timeout_run(args, **kwargs):
+            calls.append(" ".join(args))
+            args_str = " ".join(args)
+            if "scip-typescript" in args_str:
+                raise subprocess.TimeoutExpired(args[0], 300)
+            if "--output" in args_str:
+                idx = args.index("--output")
+                out = Path(args[idx + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps({"documents": [_make_scip_document("module.py")]}))
+            if "print" in args_str and "--json" in args_str:
+                return type("Result", (), {"returncode": 0, "stdout": json.dumps({"documents": [_make_scip_document("module.py")]}), "stderr": ""})()
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", timeout_run)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            count = index_with_scip(str(tmp_path), db)
+            assert count >= 0
+            assert any("scip-typescript" in c for c in calls), "TS indexer should have been attempted"
+            assert any("scip-python" in c for c in calls), "Python indexer should have been attempted"
+            assert any("timed out" in str(warning.message) for warning in w), "Timeout should be warned"
+
+    def test_all_indexers_fail_raises_runtime_error(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+
+        def fail_run(args, **kwargs):
+            args_str = " ".join(args)
+            if "scip-python" in args_str:
+                raise subprocess.TimeoutExpired(args[0], 300)
+            raise RuntimeError("indexer crashed")
+
+        monkeypatch.setattr(subprocess, "run", fail_run)
+        with pytest.raises(RuntimeError) as excinfo:
+            index_with_scip(str(tmp_path), db)
+        assert "scip-python" in str(excinfo.value)
+        assert "scip-typescript" in str(excinfo.value)
+
+    def test_bad_scip_conversion_does_not_block_other_indexers(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+        calls = []
+
+        def bad_convert_run(args, **kwargs):
+            calls.append(" ".join(args))
+            args_str = " ".join(args)
+            if "--output" in args_str:
+                idx = args.index("--output")
+                out = Path(args[idx + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps({"documents": [_make_scip_document("module.py")]}))
+                return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            if "print" in args_str and "--json" in args_str:
+                if "typescript" in args_str:
+                    return type("Result", (), {"returncode": 0, "stdout": "not valid json", "stderr": ""})()
+                return type("Result", (), {"returncode": 0, "stdout": json.dumps({"documents": []}), "stderr": ""})()
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", bad_convert_run)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            count = index_with_scip(str(tmp_path), db)
+            assert count == 0
+            assert any("scip-typescript" in c for c in calls), "TS indexer should have been attempted"
+            assert any("scip-python" in c for c in calls), "Python indexer should have been attempted"
+            assert any("Expecting value" in str(warning.message) for warning in w), "JSON decode error should be warned"
+
 
 class TestSCIPIntegration:
     pytestmark = pytest.mark.skipif(
