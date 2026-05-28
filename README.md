@@ -4,14 +4,14 @@
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-CLI-blue)](https://www.typescriptlang.org)
 
-**Code intelligence graph** — parse, query, and explore codebases. CLI, MCP server, interactive D3 force-directed graph.
+**Code intelligence graph** — parse, query, and explore codebases through a local CLI and MCP server.
 
 ```
 pip install codepulse[all]
 codepulse init --path myproject
 codepulse index myproject/src
 codepulse search "UserService"
-codepulse mcp           # AI agent integration
+codepulse serve          # AI agent integration (alias: mcp)
 ```
 
 ---
@@ -21,9 +21,9 @@ codepulse mcp           # AI agent integration
 CodePulse parses your codebase into a **semantic knowledge graph** stored in SQLite. Instead of grep + read + repeat, you query the graph directly:
 
 - **Search** symbols via FTS5 full-text search
-- **Trace** callers, callees, and impact radius of any symbol
-- **Visualize** your entire codebase as an interactive force-directed graph
-- **Serve** an MCP server for AI coding agents
+- **Trace** paths between symbols and **impact** radius
+- **Map** the codebase with `repo-map` and `context` commands
+- **Serve** an MCP server for AI coding agents (also: `codepulse serve`)
 
 ---
 
@@ -32,8 +32,12 @@ CodePulse parses your codebase into a **semantic knowledge graph** stored in SQL
 ```
                     ┌──────────────────────┐
                     │    CLI (codepulse)    │
-                    │  init · index · search│
-                    │  callers · trace · mcp│
+                    │  init · index · search │
+                    │  callers · callees    │
+                    │  trace · impact       │
+                    │  node · file          │
+                    │  repo-map · context   │
+                    │  serve · validate     │
                     └──────┬───────┬───────┘
                            │       │
               ┌────────────┘       └────────────┐
@@ -41,7 +45,7 @@ CodePulse parses your codebase into a **semantic knowledge graph** stored in SQL
     ┌──────────────────┐              ┌──────────────────┐
     │   Tree-sitter    │              │  MCP Server      │
     │   Parser         │              │  (stdio)         │
-    │   (12 languages) │              │  9 AI agent tools│
+    │   (12 languages) │              │ 10 AI agent tools│
     └────────┬─────────┘              └────────┬─────────┘
              │                                 │
              ▼                                 ▼
@@ -50,14 +54,6 @@ CodePulse parses your codebase into a **semantic knowledge graph** stored in SQL
     │   Optional: SCIP cross-file resolution       │
     │   Optional: Embeddings similarity search     │
     └──────────────────────────────────────────────┘
-             │
-             ▼
-    ┌──────────────────┐
-    │  Web Dashboard   │
-    │  D3.js force     │
-    │  graph · search  │
-    │  · detail panel  │
-    └──────────────────┘
 ```
 
 ---
@@ -80,17 +76,24 @@ codepulse search "UserModel"
 ### Search
 
 ```bash
-codepulse search "UserService"           # FTS5 full-text search
-codepulse search --kind class "User"     # Filter by symbol kind
+codepulse search "UserService"             # FTS5 full-text search
+codepulse search --kind class "User"       # Filter by symbol kind
 codepulse callers "src/app.ts:handleLogin"
-codepulse trace "src/db.ts:connect" --depth 3
-codepulse validate                       # Graph stats
+codepulse callees "src/app.ts:handleLogin"
+codepulse trace "src/a.ts:foo" "src/b.ts:bar"  # Path between two symbols
+codepulse impact "src/db.ts:connect" --depth 3  # Impact radius
+codepulse node "src/app.ts:handleLogin"         # Symbol details
+codepulse file "src/app.ts"                     # Symbols in a file
+codepulse repo-map                              # Codebase overview
+codepulse context "user auth"                   # Context for a task
+codepulse validate                              # Graph stats
+codepulse validate --strict                     # Exit nonzero on issues
 ```
 
 ### AI Agent Integration (MCP)
 
 ```bash
-codepulse mcp
+codepulse mcp       # or: codepulse serve
 ```
 
 Then configure your AI agent (OpenCode, Claude Code, Cursor):
@@ -106,7 +109,7 @@ Then configure your AI agent (OpenCode, Claude Code, Cursor):
 }
 ```
 
-The MCP server provides 9 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `status`.
+The MCP server provides 10 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `file`, `status`.
 
 
 ---
@@ -165,14 +168,14 @@ codepulse/
 │   ├── parser.py         # Tree-sitter AST walker (12 languages)
 │   ├── db.py             # SQLite graph storage + FTS5
 │   ├── graph.py          # Index, search, callers/callees
-│   ├── cli.py            # Commander CLI (8 commands)
-│   ├── mcp_server.py     # MCP protocol (9 tools)
+│   ├── cli.py            # Click CLI commands
+│   ├── mcp_server.py     # MCP protocol (10 tools)
 │   ├── compat/scip.py    # SCIP → SQLite converter
 │   ├── embeddings.py     # Semantic similarity search
 │   └── config.py         # Config + env vars
 ├── packages/cli/         # TypeScript CLI (npm)
 ├── parsers/              # Per-language YAML query configs
-├── tests/                # 154 Python tests
+├── tests/                # Python test suite
 │   ├── test_accuracy.py  # Golden file tests
 │   ├── test_languages.py # 17 multi-language tests
 │   ├── test_scip.py      # SCIP resolution accuracy
@@ -202,4 +205,4 @@ MIT
 
 ---
 
-*Built with tree-sitter, SQLite, D3.js, and a lot of curiosity.*
+*Built with tree-sitter, SQLite, and a lot of curiosity.*

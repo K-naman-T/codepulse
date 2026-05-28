@@ -31,6 +31,14 @@ class TestCLI:
         assert result.exit_code == 0
         assert "UserModel" in result.output
 
+    def test_search_output_includes_id(self, runner: CliRunner, sample_project: Path):
+        """Search output must include 'ID:' for each result."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "search", "UserModel"])
+        assert result.exit_code == 0
+        assert "ID:" in result.output
+
     def test_search_empty_results(self, runner: CliRunner, sample_project: Path):
         data_dir = sample_project / ".codepulse"
         runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
@@ -69,10 +77,31 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_trace_cli(self, runner: CliRunner, sample_project: Path):
+        """trace now takes source and target node IDs."""
         data_dir = sample_project / ".codepulse"
         runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
         sample_py = str((sample_project / "src" / "sample.py").resolve())
-        result = runner.invoke(cli, ["--data-dir", str(data_dir), "trace", f"{sample_py}:UserModel", "--depth", "2"])
+        result = runner.invoke(
+            cli,
+            [
+                "--data-dir",
+                str(data_dir),
+                "trace",
+                f"{sample_py}:UserModel.get_full_name",
+                f"{sample_py}:UserModel",
+            ],
+        )
+        assert result.exit_code == 0
+
+    def test_impact_cli(self, runner: CliRunner, sample_project: Path):
+        """impact takes a single node_id like old trace."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        sample_py = str((sample_project / "src" / "sample.py").resolve())
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(data_dir), "impact", f"{sample_py}:UserModel", "--depth", "2"],
+        )
         assert result.exit_code == 0
 
     def test_init_no_path(self, runner: CliRunner, tmp_path: Path):
@@ -136,3 +165,112 @@ class TestCLI:
         result = runner.invoke(cli, ["--data-dir", str(data_dir), "index", "src"])
         assert result.exit_code == 0
         assert "Files indexed" in result.output
+
+    def test_repo_map_command(self, runner: CliRunner, sample_project: Path):
+        """repo-map should show codebase overview."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "repo-map"])
+        assert result.exit_code == 0
+        assert "Top files" in result.output or "Codebase" in result.output or "Symbols" in result.output
+
+    def test_context_command(self, runner: CliRunner, sample_project: Path):
+        """context should show symbols matching a task."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "context", "UserModel"])
+        assert result.exit_code == 0
+        assert "UserModel" in result.output
+
+    def test_node_command(self, runner: CliRunner, sample_project: Path):
+        """node should show a single symbol's details."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        sample_py = str((sample_project / "src" / "sample.py").resolve())
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "node", f"{sample_py}:UserModel"])
+        assert result.exit_code == 0
+        assert "UserModel" in result.output
+
+    def test_file_command(self, runner: CliRunner, sample_project: Path):
+        """file should show symbols in a file."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        sample_py = str((sample_project / "src" / "sample.py").resolve())
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "file", sample_py])
+        assert result.exit_code == 0
+        assert "UserModel" in result.output or "Symbols" in result.output
+
+    def test_serve_alias(self, runner: CliRunner):
+        """serve is an alias for mcp."""
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "MCP" in result.output or "serve" in result.output
+
+    def test_scan_alias(self, runner: CliRunner, sample_project: Path):
+        """scan is an alias for index."""
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(sample_project / ".codepulse"), "scan", str(sample_project / "src")],
+        )
+        assert result.exit_code == 0
+        assert "Files indexed" in result.output
+
+    def test_validate_strict_passes_when_ok(self, runner: CliRunner, sample_project: Path):
+        """validate --strict should exit 0 when report is ok."""
+        data_dir = sample_project / ".codepulse"
+        runner.invoke(cli, ["--data-dir", str(data_dir), "index", str(sample_project / "src")])
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "validate", "--strict"])
+        assert result.exit_code == 0
+
+    def test_validate_strict_exits_nonzero_when_not_ok(self, runner: CliRunner, tmp_path: Path):
+        """validate --strict should exit nonzero when report.ok is false."""
+        data_dir = tmp_path / "empty_index"
+        data_dir.mkdir()
+        from codepulse.config import CodePulseConfig
+        from codepulse.graph import CodePulse
+        config = CodePulseConfig()
+        config.data_dir = str(data_dir)
+        cp = CodePulse(config)
+        cp.init_project()
+        cp.db.conn.execute(
+            "INSERT INTO files (path, language, content_hash, error) VALUES (?, ?, ?, ?)",
+            ("/nonexistent/file.py", "python", "abc", "some error"),
+        )
+        cp.db.conn.commit()
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "validate", "--strict"])
+        assert result.exit_code != 0
+
+    def test_export_unsupported_format_exits_nonzero(self, runner: CliRunner, tmp_path: Path):
+        """export --format with unsupported format should exit nonzero."""
+        data_dir = tmp_path / "export_test"
+        data_dir.mkdir()
+        runner.invoke(cli, ["--data-dir", str(data_dir), "init", "--path", str(tmp_path / "export_src")])
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "export", "--format", "json"])
+        assert result.exit_code != 0
+
+    def test_analyze_no_branch_option(self, runner: CliRunner):
+        """analyze should not have --branch option."""
+        result = runner.invoke(cli, ["analyze", "--help"])
+        assert result.exit_code == 0
+        assert "--branch" not in result.output
+
+    def test_analyze_output_does_not_suggest_removed_dashboard(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """analyze should only suggest commands that exist."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "app.py").write_text("def main():\n    return 1\n")
+
+        def fake_clone_repo(url, token=None, on_progress=None):
+            return str(repo)
+
+        monkeypatch.setattr("codepulse.cloner.clone_repo", fake_clone_repo)
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(tmp_path / ".codepulse"), "analyze", "https://example.com/repo"],
+        )
+
+        assert result.exit_code == 0
+        assert "cd web" not in result.output
+        assert "codepulse serve" in result.output
