@@ -4,6 +4,8 @@ import sqlite3
 from dataclasses import dataclass, field, asdict
 from typing import Any, Optional
 
+_SYNTHETIC_KINDS = ("file", "external_module", "unresolved_symbol")
+
 
 @dataclass
 class Node:
@@ -196,9 +198,15 @@ class GraphDB:
         if not query.strip():
             sql = "SELECT * FROM nodes"
             params: list[Any] = []
+            conditions: list[str] = []
             if kind:
-                sql += " WHERE kind = ?"
+                conditions.append("kind = ?")
                 params.append(kind)
+            else:
+                conditions.append(f"kind NOT IN ({','.join('?' for _ in _SYNTHETIC_KINDS)})")
+                params.extend(_SYNTHETIC_KINDS)
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
             sql += " ORDER BY name LIMIT ?"
             params.append(limit)
         else:
@@ -209,6 +217,9 @@ class GraphDB:
             if kind:
                 sql += " AND n.kind = ?"
                 params.append(kind)
+            else:
+                sql += f" AND n.kind NOT IN ({','.join('?' for _ in _SYNTHETIC_KINDS)})"
+                params.extend(_SYNTHETIC_KINDS)
             sql += " ORDER BY rank LIMIT ?"
             params.append(limit)
         rows = self.conn.execute(sql, params).fetchall()
@@ -279,10 +290,16 @@ class GraphDB:
                 result[depth] = nodes_at_depth
         return result
 
-    def get_nodes_by_file(self, file_path: str) -> list[Node]:
-        rows = self.conn.execute(
-            "SELECT * FROM nodes WHERE file_path = ? ORDER BY line_start", (file_path,)
-        ).fetchall()
+    def get_nodes_by_file(self, file_path: str, include_synthetic: bool = False) -> list[Node]:
+        if include_synthetic:
+            rows = self.conn.execute(
+                "SELECT * FROM nodes WHERE file_path = ? ORDER BY line_start", (file_path,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM nodes WHERE file_path = ? AND kind NOT IN (?, ?, ?) ORDER BY line_start",
+                (file_path, *_SYNTHETIC_KINDS)
+            ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
     def delete_file_nodes(self, file_path: str) -> None:
@@ -378,8 +395,9 @@ class GraphDB:
                  FROM edges
                  GROUP BY target_id
                ) ec ON n.id = ec.node_id
+               WHERE n.kind NOT IN (?, ?, ?)
                ORDER BY edge_count DESC, n.name
-               LIMIT ?""", (limit,)
+               LIMIT ?""", (*_SYNTHETIC_KINDS, limit)
         ).fetchall()
         return [(self._row_to_node(r), r["edge_count"]) for r in rows]
 
@@ -417,13 +435,13 @@ class GraphDB:
         """Return top files ranked by symbol count + edge references."""
         rows = self.conn.execute(
             """SELECT n.file_path,
-               COUNT(DISTINCT n.id) as symbol_count,
+               SUM(CASE WHEN n.kind NOT IN (?, ?, ?) THEN 1 ELSE 0 END) as symbol_count,
                (SELECT COUNT(*) FROM edges WHERE file_path = n.file_path) as edge_refs,
                GROUP_CONCAT(DISTINCT n.kind) as kinds
              FROM nodes n
              GROUP BY n.file_path
              ORDER BY (symbol_count + edge_refs) DESC
-             LIMIT ?""", (limit,)
+             LIMIT ?""", (*_SYNTHETIC_KINDS, limit)
         ).fetchall()
         return [{"file": r["file_path"], "symbols": r["symbol_count"], "edges": r["edge_refs"],
                  "kinds": r["kinds"] or ""} for r in rows]
@@ -433,9 +451,10 @@ class GraphDB:
         rows = self.conn.execute(
             """SELECT n.name, n.kind, n.file_path, n.line_start, n.signature,
                (SELECT COUNT(*) FROM edges WHERE source_id = n.id OR target_id = n.id) as refs
-             FROM nodes n
-             ORDER BY refs DESC, n.name
-             LIMIT ?""", (limit,)
+              FROM nodes n
+              WHERE n.kind NOT IN (?, ?, ?)
+              ORDER BY refs DESC, n.name
+              LIMIT ?""", (*_SYNTHETIC_KINDS, limit)
         ).fetchall()
         return [{"name": r["name"], "kind": r["kind"], "file": r["file_path"],
                  "line": r["line_start"], "sig": (r["signature"] or "")[:120], "refs": r["refs"]}

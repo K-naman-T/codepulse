@@ -96,7 +96,7 @@ class TestParserIntegration:
             db.upsert_node(sym)
         for ref in refs:
             db.upsert_edge(ref)
-        stored = db.get_nodes_by_file(str(src))
+        stored = db.get_nodes_by_file(str(src), include_synthetic=True)
         assert len(stored) == len(symbols)
 
     def test_parse_python_detects_calls(self, parser, sample_project: Path):

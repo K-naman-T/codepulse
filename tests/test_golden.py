@@ -208,7 +208,7 @@ class GoldenBase:
 
     def test_all_symbols_have_line_numbers(self, parsed):
         syms, _ = parsed
-        no_lines = [s for s in syms if s.line_start < 1 or s.line_end < 1 and s.kind not in ("file", "external_module")]
+        no_lines = [s for s in syms if s.kind not in ("file", "external_module") and (s.line_start < 1 or s.line_end < 1)]
         assert not no_lines, f"Symbols without line numbers: {[s.name for s in no_lines]}"
 
     def test_no_false_positives(self, parsed):

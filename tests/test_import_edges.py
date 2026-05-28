@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from codepulse.config import CodePulseConfig
-from codepulse.db import Node, Edge
+from codepulse.db import GraphDB, Node, Edge
 from codepulse.graph import CodePulse
 from codepulse.ids import file_node_id, external_node_id
 from codepulse.parser import SourceParser
@@ -82,3 +82,104 @@ def test_file_node_exists_for_indexed_file():
         cp.index_all(str(fixtures))
         report = cp.validate()
         assert report.by_kind.get("file", 0) >= 1
+
+
+def _db_with_synthetic_and_real() -> GraphDB:
+    """Helper: create a GraphDB with both synthetic and real nodes."""
+    import tempfile as _tf
+    tmp = _tf.mkdtemp()
+    db = GraphDB(str(Path(tmp) / "test.db"))
+    db.initialize()
+    real = Node(id="mod.py:func", file_path="mod.py", name="func", kind="function")
+    file_node = Node(id="mod.py", file_path="mod.py", name="mod.py", kind="file")
+    ext = Node(id="external:module:os", file_path="mod.py", name="os", kind="external_module")
+    unresolved = Node(id="unresolved:calls:foo", file_path="mod.py", name="foo", kind="unresolved_symbol")
+    for n in [real, file_node, ext, unresolved]:
+        db.upsert_node(n)
+    db.upsert_edge(Edge(source_id="mod.py:func", target_id="mod.py:func", kind="calls"))
+    return db
+
+
+def test_search_nodes_excludes_synthetic_by_default():
+    db = _db_with_synthetic_and_real()
+    try:
+        results = db.search_nodes("")
+        names = {r.name for r in results}
+        assert "func" in names
+        assert "mod.py" not in names
+        assert "os" not in names
+        assert "foo" not in names
+
+        file_results = db.search_nodes("", kind="file")
+        assert len(file_results) == 1
+        assert file_results[0].kind == "file"
+    finally:
+        db.close()
+
+
+def test_get_node_rankings_excludes_synthetic():
+    db = _db_with_synthetic_and_real()
+    try:
+        rankings = db.get_node_rankings()
+        ranking_ids = {n.id for n, _ in rankings}
+        assert "mod.py:func" in ranking_ids
+        assert "mod.py" not in ranking_ids
+        assert "external:module:os" not in ranking_ids
+        assert "unresolved:calls:foo" not in ranking_ids
+    finally:
+        db.close()
+
+
+def test_get_file_summary_excludes_synthetic_from_symbol_count():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        db = GraphDB(db_path)
+        db.initialize()
+        try:
+            file_node = Node(id="mod.py", file_path="mod.py", name="mod.py", kind="file")
+            real = Node(id="mod.py:func", file_path="mod.py", name="func", kind="function")
+            db.upsert_node(file_node)
+            db.upsert_node(real)
+
+            empty_file = Node(id="empty.py", file_path="empty.py", name="empty.py", kind="file")
+            db.upsert_node(empty_file)
+
+            summary = db.get_file_summary(limit=10)
+            summaries = {s["file"]: s for s in summary}
+
+            assert "mod.py" in summaries
+            assert summaries["mod.py"]["symbols"] == 1
+
+            assert "empty.py" in summaries
+            assert summaries["empty.py"]["symbols"] == 0
+        finally:
+            db.close()
+
+
+def test_get_top_symbols_with_context_excludes_synthetic():
+    db = _db_with_synthetic_and_real()
+    try:
+        results = db.get_top_symbols_with_context()
+        names = {r["name"] for r in results}
+        assert "func" in names
+        assert "mod.py" not in names
+        assert "os" not in names
+        assert "foo" not in names
+    finally:
+        db.close()
+
+
+def test_get_nodes_by_file_excludes_synthetic_by_default():
+    db = _db_with_synthetic_and_real()
+    try:
+        results = db.get_nodes_by_file("mod.py")
+        names = {r.name for r in results}
+        assert "func" in names
+        assert "mod.py" not in names
+
+        all_nodes = db.get_nodes_by_file("mod.py", include_synthetic=True)
+        all_names = {r.name for r in all_nodes}
+        assert "func" in all_names
+        assert "mod.py" in all_names
+    finally:
+        db.close()
