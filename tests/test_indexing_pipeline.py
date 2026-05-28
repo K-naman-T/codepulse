@@ -46,6 +46,36 @@ class TestSafePathDeletion:
             ).fetchone()[0]
             assert bar_nodes > 0, "bar from src-old must survive src reindex"
 
+    def test_underscore_in_path_does_not_delete_sibling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = CodePulseConfig(data_dir=tmp)
+            cp = CodePulse(config)
+
+            project = Path(tmp) / "my_project"
+            project.mkdir()
+            (project / "a.py").write_text("def foo(): pass\n")
+
+            sibling = Path(tmp) / "myXproject"
+            sibling.mkdir()
+            (sibling / "b.py").write_text("def bar(): pass\n")
+
+            cp.index_all(str(sibling))
+            bar_nodes = cp.db.conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE name = 'bar'"
+            ).fetchone()[0]
+            assert bar_nodes > 0, "bar should be indexed from myXproject"
+
+            cp.index_all(str(project))
+
+            foo_nodes = cp.db.conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE name = 'foo'"
+            ).fetchone()[0]
+            assert foo_nodes > 0, "foo should be indexed from my_project"
+
+            bar_nodes = cp.db.conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE name = 'bar'"
+            ).fetchone()[0]
+            assert bar_nodes > 0, "bar from myXproject must survive my_project reindex"
 
 class TestEdgesWithoutSymbols:
     """Files with only import edges (no real symbols) must persist."""
@@ -87,7 +117,7 @@ class TestParserErrors:
             assert len(result.errors) == 0
 
             hello_found = cp.db.conn.execute(
-                "SELECT COUNT(*) FROM nodes WHERE name LIKE '%hello%'"
+                "SELECT COUNT(*) FROM nodes WHERE name = 'hello'"
             ).fetchone()[0]
             assert hello_found > 0, "hello symbol must exist"
 
@@ -99,7 +129,7 @@ class TestParserErrors:
             assert len(result.errors) >= 1
 
             hello_found = cp.db.conn.execute(
-                "SELECT COUNT(*) FROM nodes WHERE name LIKE '%hello%'"
+                "SELECT COUNT(*) FROM nodes WHERE name = 'hello'"
             ).fetchone()[0]
             assert hello_found > 0, "hello symbol must survive bad file"
 

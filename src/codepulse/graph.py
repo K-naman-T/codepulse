@@ -10,6 +10,10 @@ from codepulse.db import GraphDB, Node, Edge
 from codepulse.parser import SourceParser
 
 
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @dataclass
 class IndexResult:
     files_indexed: int = 0
@@ -83,13 +87,13 @@ class CodePulse:
             # Delete stale data for the indexed path using exact path matching.
             # The trailing /% ensures /repo/src does not match /repo/src-old.
             conn.execute(
-                "DELETE FROM edges WHERE file_path = ? OR file_path LIKE ?",
-                [resolved, f"{resolved}/%"],
+                "DELETE FROM edges WHERE file_path = ? OR file_path LIKE ? ESCAPE '\\'",
+                [resolved, f"{_escape_like(resolved)}/%"],
             )
 
             old_paths = conn.execute(
-                "SELECT DISTINCT file_path FROM nodes WHERE file_path = ? OR file_path LIKE ?",
-                [resolved, f"{resolved}/%"],
+                "SELECT DISTINCT file_path FROM nodes WHERE file_path = ? OR file_path LIKE ? ESCAPE '\\'",
+                [resolved, f"{_escape_like(resolved)}/%"],
             ).fetchall()
             for (old_path,) in old_paths:
                 conn.execute(
@@ -103,8 +107,8 @@ class CodePulse:
                 conn.execute("DELETE FROM nodes WHERE file_path = ?", (old_path,))
 
             conn.execute(
-                "DELETE FROM files WHERE path = ? OR path LIKE ?",
-                [resolved, f"{resolved}/%"],
+                "DELETE FROM files WHERE path = ? OR path LIKE ? ESCAPE '\\'",
+                [resolved, f"{_escape_like(resolved)}/%"],
             )
 
             for file_path in files:
