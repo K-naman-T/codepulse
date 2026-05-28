@@ -115,10 +115,24 @@ class TestCLI:
         assert (env_dir / "graph.db").exists()
         assert not (project / ".codepulse" / "graph.db").exists()
 
-    def test_init_standalone_mode_false(self, runner: CliRunner, tmp_path: Path):
+    def test_init_creates_dot_codepulse_at_path(self, runner: CliRunner, tmp_path: Path):
         project = tmp_path / "rootproj"
         project.mkdir()
         result = runner.invoke(cli, ["init", "--path", str(project)])
         assert result.exit_code == 0
         config_dir = project / ".codepulse"
         assert config_dir.exists()
+
+    def test_init_relative_path(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["init", "--path", "myproject"])
+        assert result.exit_code == 0
+        assert (tmp_path / "myproject" / ".codepulse").exists()
+
+    def test_index_relative_path(self, runner: CliRunner, sample_project: Path, monkeypatch):
+        data_dir = sample_project / ".codepulse"
+        data_dir.mkdir()
+        monkeypatch.chdir(sample_project)
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "index", "src"])
+        assert result.exit_code == 0
+        assert "Files indexed" in result.output
