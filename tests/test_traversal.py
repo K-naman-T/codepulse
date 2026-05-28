@@ -165,7 +165,7 @@ class TestTrace:
     def test_direct_path(self, graph):
         result = graph.trace_path("/src/main.py:main", "/src/main.py:parse", max_depth=1)
         assert result is not None
-        assert len(result) >= 2
+        assert len(result) == 2
         assert result[0].id == "/src/main.py:main"
         assert result[-1].id == "/src/main.py:parse"
 
@@ -239,6 +239,25 @@ class TestCalleesEdgeKinds:
     def test_callees_filter_empty_kind_set(self, graph):
         callees = graph.get_callees("/src/main.py:main", depth=1, edge_kinds=set())
         assert len(callees) == 0
+
+
+class TestCallersEdgeKinds:
+    def test_callers_filter_by_edge_kind(self, graph):
+        callers = graph.get_callers("/src/helper.py:helper", depth=1, edge_kinds={"calls"})
+        assert len(callers) == 0
+
+        callers = graph.get_callers("/src/helper.py:helper", depth=1, edge_kinds={"references"})
+        names = {c[0].name for c in callers}
+        assert names == {"main"}
+
+    def test_callers_no_filter_returns_all(self, graph):
+        callers = graph.get_callers("/src/helper.py:helper", depth=1)
+        names = {c[0].name for c in callers}
+        assert names == {"main"}
+
+    def test_callers_filter_empty_kind_set(self, graph):
+        callers = graph.get_callers("/src/helper.py:helper", depth=1, edge_kinds=set())
+        assert len(callers) == 0
 
 
 class TestImpactEdgeKinds:
