@@ -20,33 +20,48 @@ LANG_EXT = {
     "swift": ".swift", "kotlin": ".kt", "scala": ".scala",
 }
 
+ALLOWED_SYNTHETIC_KINDS = {"file", "external_module"}
+
 GOLDEN = {
     "go": {
         "functions": ["NewConfig", "ParseInt", "HandleRequest"],
-        "methods": ["Load", "Validate", "String", "Save", "Value"],
+        "methods": ["Config.Load", "Config.Validate", "Config.String", "Repository.Save", "Repository.Value"],
         "classes": ["Config", "Repository"],
         "interfaces": [],
         "call_targets": ["ParseInt"],
-        "imports": [],
-        "method_parents": {"Load": "Config", "Validate": "Config", "String": "Config", "Save": "Repository", "Value": "Repository"},
+        "method_parents": {"Config.Load": "Config", "Config.Validate": "Config", "Config.String": "Config", "Repository.Save": "Repository", "Repository.Value": "Repository"},
     },
     "rust": {
         "functions": ["create_user", "factorial", "run"],
-        "methods": ["get_name", "is_active", "greet"],
+        "methods": ["User.get_name", "User.is_active", "User.greet"],
         "classes": ["User"],
         "interfaces": [],
-        "call_targets": ["factorial", "create_user", "is_active", "greet"],
-        "imports": [],
-        "method_parents": {"get_name": "User", "is_active": "User", "greet": "User"},
+        "call_targets": ["factorial", "create_user", "User.is_active", "User.greet"],
+        "method_parents": {"User.get_name": "User", "User.is_active": "User", "User.greet": "User"},
+    },
+    "python": {
+        "functions": ["create_user", "send_welcome_email", "format_date", "get_logger"],
+        "methods": ["User.__init__", "User.get_display_name", "User.save", "Logger.log", "AdminUser.get_display_name"],
+        "classes": ["User", "AdminUser", "Logger"],
+        "interfaces": [],
+        "call_targets": ["User", "User.save", "get_logger", "Logger.log", "User.get_display_name", "send_email"],
+        "method_parents": {"User.__init__": "User", "User.get_display_name": "User", "User.save": "User", "Logger.log": "Logger", "AdminUser.get_display_name": "AdminUser"},
+    },
+    "typescript": {
+        "functions": ["start", "connect", "initialize", "log"],
+        "methods": ["Database.constructor", "Database.query", "UserService.constructor", "UserService.getFullName", "UserService.sendEmail"],
+        "classes": ["Database", "UserService"],
+        "interfaces": ["User", "Config"],
+        "call_targets": ["connect", "log", "parseInt", "express", "start", "fetch", "Database.query", "listen"],
+        "method_parents": {"Database.constructor": "Database", "Database.query": "Database", "UserService.constructor": "UserService", "UserService.getFullName": "UserService", "UserService.sendEmail": "UserService"},
     },
     "java": {
         "functions": [],
-        "methods": ["add", "compute"],
+        "methods": ["Calculator.add", "Calculator.compute"],
         "classes": ["Calculator"],
         "interfaces": [],
-        "call_targets": ["add"],
-        "imports": [],
-        "method_parents": {"add": "Calculator", "compute": "Calculator"},
+        "call_targets": ["Calculator.add"],
+        "method_parents": {"Calculator.add": "Calculator", "Calculator.compute": "Calculator"},
     },
     "ruby": {
         "functions": ["greet", "helper"],
@@ -54,7 +69,6 @@ GOLDEN = {
         "classes": ["Greeter"],
         "interfaces": [],
         "call_targets": ["puts", "new", "greet"],
-        "imports": [],
         "method_parents": {},
     },
     "php": {
@@ -63,7 +77,6 @@ GOLDEN = {
         "classes": ["Logger"],
         "interfaces": [],
         "call_targets": ["\\strlen"],
-        "imports": [],
         "method_parents": {},
     },
     "c": {
@@ -72,7 +85,6 @@ GOLDEN = {
         "classes": ["Point"],
         "interfaces": [],
         "call_targets": ["printf"],
-        "imports": [],
         "method_parents": {},
     },
     "cpp": {
@@ -81,35 +93,31 @@ GOLDEN = {
         "classes": ["Counter"],
         "interfaces": [],
         "call_targets": ["getValue", "create_counter"],
-        "imports": [],
         "method_parents": {},
     },
     "swift": {
         "functions": ["create_car"],
-        "methods": ["drive"],
+        "methods": ["Car.drive"],
         "classes": ["Car"],
         "interfaces": [],
         "call_targets": ["print", "Car"],
-        "imports": [],
-        "method_parents": {"drive": "Car"},
+        "method_parents": {"Car.drive": "Car"},
     },
     "kotlin": {
         "functions": ["main"],
-        "methods": ["add"],
+        "methods": ["Calculator.add"],
         "classes": ["Calculator"],
         "interfaces": [],
         "call_targets": ["Calculator", "println"],
-        "imports": [],
-        "method_parents": {"add": "Calculator"},
+        "method_parents": {"Calculator.add": "Calculator"},
     },
     "scala": {
-        "functions": ["helper"],
-        "methods": ["greet"],
+        "functions": ["helper", "Main.run"],
+        "methods": ["Hello.greet"],
         "classes": ["Hello", "Main"],
         "interfaces": ["Greeter"],
         "call_targets": ["println"],
-        "imports": [],
-        "method_parents": {"greet": "Hello"},
+        "method_parents": {"Hello.greet": "Hello"},
     },
 }
 
@@ -129,15 +137,9 @@ def parse_golden(parser, lang: str):
     return parser.parse_file(str(fpath))
 
 
-def _short(names: set[str]) -> set[str]:
-    """Extract short symbol names handling both bare and path-prefixed formats."""
-    result = set()
-    for n in names:
-        short = n.split(":")[-1]
-        if "." in short:
-            short = short.split(".")[-1]
-        result.add(short)
-    return result
+def _name_from_id(node_id: str) -> str:
+    """Extract symbol name from node ID (strip file path prefix before ':')."""
+    return node_id.split(":")[-1]
 
 
 class GoldenBase:
@@ -149,31 +151,39 @@ class GoldenBase:
 
     def test_all_functions_found(self, parsed):
         syms, _ = parsed
-        func_names = {s.name for s in syms if s.kind == "function"}
+        actual = {s.name for s in syms if s.kind == "function"}
         expected = set(self.GOLDEN["functions"])
-        missing = expected - _short(func_names)
+        missing = expected - actual
+        extras = actual - expected
         assert not missing, f"Missing functions: {missing}"
+        assert not extras, f"Extra functions: {extras}"
 
     def test_all_methods_found(self, parsed):
         syms, _ = parsed
-        method_names = {s.name for s in syms if s.kind == "method"}
+        actual = {s.name for s in syms if s.kind == "method"}
         expected = set(self.GOLDEN["methods"])
-        missing = expected - _short(method_names)
+        missing = expected - actual
+        extras = actual - expected
         assert not missing, f"Missing methods: {missing}"
+        assert not extras, f"Extra methods: {extras}"
 
     def test_all_classes_found(self, parsed):
         syms, _ = parsed
-        class_names = {s.name for s in syms if s.kind == "class"}
+        actual = {s.name for s in syms if s.kind == "class"}
         expected = set(self.GOLDEN.get("classes", []))
-        missing = expected - class_names
+        missing = expected - actual
+        extras = actual - expected
         assert not missing, f"Missing classes: {missing}"
+        assert not extras, f"Extra classes: {extras}"
 
     def test_all_interfaces_found(self, parsed):
         syms, _ = parsed
-        iface_names = {s.name for s in syms if s.kind == "interface"}
+        actual = {s.name for s in syms if s.kind == "interface"}
         expected = set(self.GOLDEN.get("interfaces", []))
-        missing = expected - iface_names
+        missing = expected - actual
+        extras = actual - expected
         assert not missing, f"Missing interfaces: {missing}"
+        assert not extras, f"Extra interfaces: {extras}"
 
     def test_methods_have_parent_class(self, parsed):
         syms, _ = parsed
@@ -182,27 +192,24 @@ class GoldenBase:
             return
         all_ids = {s.id for s in syms}
         for s in syms:
-            if s.kind == "method":
-                short = s.name.split(":")[-1].split(".")[-1]
-                if short in expected_parents:
-                    assert s.parent_id is not None, (
-                        f"Method {short} has no parent_id"
-                    )
-                    assert s.parent_id in all_ids, (
-                        f"Method {short} parent_id {s.parent_id} not found in parsed node IDs"
-                    )
-                    parent_short = s.parent_id.split(":")[-1]
-                    expected = expected_parents[short]
-                    assert parent_short == expected, (
-                        f"Method {short} parent should be {expected}, got {parent_short}"
-                    )
+            if s.kind == "method" and s.name in expected_parents:
+                assert s.parent_id is not None, (
+                    f"Method {s.name} has no parent_id"
+                )
+                assert s.parent_id in all_ids, (
+                    f"Method {s.name} parent_id {s.parent_id} not found in parsed node IDs"
+                )
+                parent_name = _name_from_id(s.parent_id)
+                expected = expected_parents[s.name]
+                assert parent_name == expected, (
+                    f"Method {s.name} parent should be {expected}, got {parent_name}"
+                )
 
     def test_calls_detected(self, parsed):
         _, refs = parsed
-        raw = {r.target_id for r in refs if r.kind == "calls"}
-        call_targets = _short(raw)
+        actual = {_name_from_id(r.target_id) for r in refs if r.kind == "calls"}
         expected = set(self.GOLDEN.get("call_targets", []))
-        missing = expected - call_targets
+        missing = expected - actual
         assert not missing, f"Missing call targets: {missing}"
 
     def test_no_empty_symbols(self, parsed):
@@ -212,12 +219,12 @@ class GoldenBase:
 
     def test_all_symbols_have_line_numbers(self, parsed):
         syms, _ = parsed
-        no_lines = [s for s in syms if s.kind not in ("file", "external_module") and (s.line_start < 1 or s.line_end < 1)]
+        no_lines = [s for s in syms if s.kind not in ALLOWED_SYNTHETIC_KINDS and (s.line_start < 1 or s.line_end < 1)]
         assert not no_lines, f"Symbols without line numbers: {[s.name for s in no_lines]}"
 
     def test_no_false_positives(self, parsed):
         syms, _ = parsed
-        known_kinds = {"function", "method", "class", "interface", "file", "external_module"}
+        known_kinds = {"function", "method", "class", "interface"} | ALLOWED_SYNTHETIC_KINDS
         for s in syms:
             assert s.kind in known_kinds, f"Unexpected kind '{s.kind}' for {s.name}"
 
@@ -234,8 +241,15 @@ class TestGoldenRust(GoldenBase):
     LANG = "rust"
     GOLDEN = GOLDEN["rust"]
 
-    def test_all_methods_found(self, parsed):
-        super().test_all_methods_found(parsed)
+
+class TestGoldenPython(GoldenBase):
+    LANG = "python"
+    GOLDEN = GOLDEN["python"]
+
+
+class TestGoldenTypescript(GoldenBase):
+    LANG = "typescript"
+    GOLDEN = GOLDEN["typescript"]
 
 
 class TestGoldenJava(GoldenBase):
