@@ -3,13 +3,17 @@
 Each fixture file in tests/fixtures/accuracy.<ext> has known symbols documented
 in comments. Tests verify EXACT matches — no false positives, no false negatives,
 correct parent_id, correct references.
+
+Also includes precision/recall/F1 threshold tests against the golden manifest.
 """
 
 from pathlib import Path
 
 import pytest
+import yaml
 
 from codepulse.parser import SourceParser
+from codepulse.validation import compare_to_golden
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -288,3 +292,80 @@ class TestGoldenKotlin(GoldenBase):
 class TestGoldenScala(GoldenBase):
     LANG = "scala"
     GOLDEN = GOLDEN["scala"]
+
+
+# ---------------------------------------------------------------------------
+# Precision / Recall / F1 threshold tests against the accuracy.yml manifest
+# ---------------------------------------------------------------------------
+
+HERE = Path(__file__).parent
+GOLDEN_MANIFEST_PATH = HERE / "golden" / "accuracy.yml"
+
+
+@pytest.fixture(scope="module")
+def accuracy_manifest():
+    with open(GOLDEN_MANIFEST_PATH) as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture
+def indexed_golden_db(db, accuracy_manifest):
+    """Index the accuracy.py fixture into a fresh DB for comparison."""
+    from codepulse.parser import SourceParser
+    parser = SourceParser()
+    fpath = FIXTURES / "accuracy.py"
+    symbols, edges = parser.parse_file(str(fpath))
+    db.bulk_import(symbols, edges)
+    return db
+
+
+class TestAccuracyGoldenThresholds:
+    """Threshold assertions against the golden manifest for accuracy.py."""
+
+    def test_symbols_precision(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.symbols.precision >= 0.98, (
+            f"symbols precision {result.symbols.precision} < 0.98"
+        )
+
+    def test_symbols_recall(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.symbols.recall >= 0.98, (
+            f"symbols recall {result.symbols.recall} < 0.98"
+        )
+
+    def test_calls_precision(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.calls.precision >= 0.90, (
+            f"calls precision {result.calls.precision} < 0.90"
+        )
+
+    def test_calls_recall(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.calls.recall >= 0.85, (
+            f"calls recall {result.calls.recall} < 0.85"
+        )
+
+    def test_imports_precision(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.imports.precision >= 0.95, (
+            f"imports precision {result.imports.precision} < 0.95"
+        )
+
+    def test_imports_recall(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.imports.recall >= 0.95, (
+            f"imports recall {result.imports.recall} < 0.95"
+        )
+
+    def test_parent_links_precision(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.parent_links.precision >= 0.98, (
+            f"parent_links precision {result.parent_links.precision} < 0.98"
+        )
+
+    def test_parent_links_recall(self, indexed_golden_db, accuracy_manifest):
+        result = compare_to_golden(indexed_golden_db, accuracy_manifest)
+        assert result.parent_links.recall >= 0.98, (
+            f"parent_links recall {result.parent_links.recall} < 0.98"
+        )

@@ -1,0 +1,184 @@
+# Golden manifest for accuracy.py Python fixture.
+# All symbols must exist with exact kinds, parent names, and line ranges.
+# All edges (calls, imports) must be present.
+symbols:
+  - id_suffix: "User"
+    name: "User"
+    kind: "class"
+    file: "accuracy.py"
+    line_start: 7
+    line_end: 19
+  - id_suffix: "User.__init__"
+    name: "User.__init__"
+    kind: "method"
+    file: "accuracy.py"
+    parent_name: "User"
+    line_start: 10
+    line_end: 12
+  - id_suffix: "User.get_display_name"
+    name: "User.get_display_name"
+    kind: "method"
+    file: "accuracy.py"
+    parent_name: "User"
+    line_start: 14
+    line_end: 15
+  - id_suffix: "User.save"
+    name: "User.save"
+    kind: "method"
+    file: "accuracy.py"
+    parent_name: "User"
+    line_start: 17
+    line_end: 19
+  - id_suffix: "AdminUser"
+    name: "AdminUser"
+    kind: "class"
+    file: "accuracy.py"
+    line_start: 22
+    line_end: 27
+  - id_suffix: "AdminUser.get_display_name"
+    name: "AdminUser.get_display_name"
+    kind: "method"
+    file: "accuracy.py"
+    parent_name: "AdminUser"
+    line_start: 25
+    line_end: 27
+  - id_suffix: "create_user"
+    name: "create_user"
+    kind: "function"
+    file: "accuracy.py"
+    line_start: 30
+    line_end: 35
+  - id_suffix: "send_welcome_email"
+    name: "send_welcome_email"
+    kind: "function"
+    file: "accuracy.py"
+    line_start: 38
+    line_end: 40
+  - id_suffix: "format_date"
+    name: "format_date"
+    kind: "function"
+    file: "accuracy.py"
+    line_start: 43
+    line_end: 44
+  - id_suffix: "get_logger"
+    name: "get_logger"
+    kind: "function"
+    file: "accuracy.py"
+    line_start: 47
+    line_end: 48
+  - id_suffix: "Logger"
+    name: "Logger"
+    kind: "class"
+    file: "accuracy.py"
+    line_start: 62
+    line_end: 64
+  - id_suffix: "Logger.log"
+    name: "Logger.log"
+    kind: "method"
+    file: "accuracy.py"
+    parent_name: "Logger"
+    line_start: 63
+    line_end: 64
+
+edges:
+  - source_name: "accuracy.py"
+    target_name: "os"
+    kind: "imports"
+    file: "accuracy.py"
+    line_number: 3
+    resolution_status: "resolved"
+  - source_name: "accuracy.py"
+    target_name: "datetime"
+    kind: "imports"
+    file: "accuracy.py"
+    line_number: 4
+    resolution_status: "resolved"
+  - source_name: "create_user"
+    target_name: "User"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 31
+    resolution_status: "resolved"
+  - source_name: "create_user"
+    target_name: "User.save"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 32
+    resolution_status: "resolved"
+  - source_name: "create_user"
+    target_name: "get_logger"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 33
+    resolution_status: "resolved"
+  - source_name: "create_user"
+    target_name: "Logger.log"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 34
+    resolution_status: "resolved"
+  - source_name: "send_welcome_email"
+    target_name: "User.get_display_name"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 39
+    resolution_status: "resolved"
+  - source_name: "send_welcome_email"
+    target_name: "send_email"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 40
+    resolution_status: "resolved"
+  - source_name: "format_date"
+    target_name: "isoformat"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 44
+    resolution_status: "resolved"
+  - source_name: "get_logger"
+    target_name: "Logger"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 48
+    resolution_status: "resolved"
+  - source_name: "AdminUser.get_display_name"
+    target_name: "User.get_display_name"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 26
+    resolution_status: "resolved"
+  - source_name: "User.save"
+    target_name: "print"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 18
+    resolution_status: "resolved"
+  - source_name: "Logger.log"
+    target_name: "print"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 64
+    resolution_status: "resolved"
+  - source_name: "User.get_display_name"
+    target_name: "upper"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 15
+    resolution_status: "resolved"
+  - source_name: "AdminUser.get_display_name"
+    target_name: "super"
+    kind: "calls"
+    file: "accuracy.py"
+    line_number: 26
+    resolution_status: "resolved"
+
+# External/built-in symbols the parser may produce; these are not counted
+# as false positives.
+allowed_external:
+  - os
+  - datetime
+  - print
+  - super
+  - send_email
+  - isoformat
+  - upper
