@@ -28,6 +28,14 @@ class Edge:
     kind: str
     file_path: str = ""
     line_number: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+    line_start: int = 0
+    line_end: int = 0
+    column_start: int = 0
+    column_end: int = 0
+    confidence: float = 1.0
+    provenance: str = "tree-sitter"
+    resolution_status: str = "resolved"
 
 
 class GraphDB:
@@ -67,7 +75,15 @@ class GraphDB:
                 kind TEXT NOT NULL,
                 file_path TEXT DEFAULT '',
                 line_number INTEGER DEFAULT 0,
-                UNIQUE(source_id, target_id, kind)
+                metadata TEXT DEFAULT '{}',
+                line_start INTEGER DEFAULT 0,
+                line_end INTEGER DEFAULT 0,
+                column_start INTEGER DEFAULT 0,
+                column_end INTEGER DEFAULT 0,
+                confidence REAL DEFAULT 1.0,
+                provenance TEXT DEFAULT 'tree-sitter',
+                resolution_status TEXT DEFAULT 'resolved',
+                UNIQUE(source_id, target_id, kind, file_path, line_start, column_start)
             );
 
             CREATE TABLE IF NOT EXISTS embeddings (
@@ -107,7 +123,8 @@ class GraphDB:
                 VALUES (new.rowid, new.name, new.signature, new.metadata);
             END;
         """)
-        self.conn.commit()
+        from codepulse.schema import ensure_schema
+        ensure_schema(self.conn)
 
     def upsert_node(self, node: Node) -> str:
         self._upsert_node_raw(node)
@@ -150,12 +167,18 @@ class GraphDB:
 
     def _upsert_edge_raw(self, edge: Edge) -> sqlite3.Cursor:
         return self.conn.execute(
-            """INSERT INTO edges (source_id, target_id, kind, file_path, line_number)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(source_id, target_id, kind) DO UPDATE SET
-                 file_path=excluded.file_path,
-                 line_number=excluded.line_number""",
-            (edge.source_id, edge.target_id, edge.kind, edge.file_path, edge.line_number),
+            """INSERT INTO edges (source_id, target_id, kind, file_path, line_number, metadata, line_start, line_end, column_start, column_end, confidence, provenance, resolution_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(source_id, target_id, kind, file_path, line_start, column_start) DO UPDATE SET
+                 line_end=excluded.line_end,
+                 column_end=excluded.column_end,
+                 confidence=excluded.confidence,
+                 provenance=excluded.provenance,
+                 resolution_status=excluded.resolution_status,
+                 metadata=excluded.metadata""",
+            (edge.source_id, edge.target_id, edge.kind, edge.file_path, edge.line_number,
+             json.dumps(edge.metadata), edge.line_start, edge.line_end, edge.column_start,
+             edge.column_end, edge.confidence, edge.provenance, edge.resolution_status),
         )
 
     def bulk_import(self, nodes: list[Node], edges: list[Edge]) -> tuple[int, int]:
