@@ -37,6 +37,12 @@ class Edge:
     provenance: str = "tree-sitter"
     resolution_status: str = "resolved"
 
+    def __post_init__(self) -> None:
+        if self.line_start == 0 and self.line_number != 0:
+            object.__setattr__(self, "line_start", self.line_number)
+        if self.line_number == 0 and self.line_start != 0:
+            object.__setattr__(self, "line_number", self.line_start)
+
 
 class GraphDB:
     def __init__(self, db_path: str):
@@ -215,6 +221,24 @@ class GraphDB:
             parent_id=row["parent_id"],
             language=row["language"],
             metadata=json.loads(row["metadata"] or "{}"),
+        )
+
+    @staticmethod
+    def _row_to_edge(row: sqlite3.Row) -> Edge:
+        return Edge(
+            source_id=row["source_id"],
+            target_id=row["target_id"],
+            kind=row["kind"],
+            file_path=row["file_path"],
+            line_number=row["line_number"],
+            metadata=json.loads(row["metadata"] or "{}"),
+            line_start=row["line_start"],
+            line_end=row["line_end"],
+            column_start=row["column_start"],
+            column_end=row["column_end"],
+            confidence=row["confidence"],
+            provenance=row["provenance"],
+            resolution_status=row["resolution_status"],
         )
 
     def search_nodes(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:

@@ -99,6 +99,38 @@ class TestEdgeCRUD:
         e2 = db.upsert_edge(Edge(source_id="mod.py:a", target_id="mod.py:b", kind="calls"))
         assert e2 == e1 or e2 > 0
 
+    def test_line_number_line_start_coherency(self, db: GraphDB):
+        a = Node(id="mod.py:a", file_path="mod.py", name="a", kind="function")
+        b = Node(id="mod.py:b", file_path="mod.py", name="b", kind="function")
+        db.upsert_node(a)
+        db.upsert_node(b)
+
+        e1 = Edge(source_id="mod.py:a", target_id="mod.py:b", kind="calls",
+                  file_path="mod.py", line_number=42)
+        assert e1.line_start == 42, "line_start should mirror line_number"
+
+        e2 = Edge(source_id="mod.py:a", target_id="mod.py:b", kind="calls",
+                  file_path="mod.py", line_start=99)
+        assert e2.line_number == 99, "line_number should mirror line_start"
+
+        e3 = Edge(source_id="mod.py:a", target_id="mod.py:b", kind="calls",
+                  file_path="mod.py", line_number=10, line_start=20)
+        assert e3.line_number == 10
+        assert e3.line_start == 20
+
+        e4 = Edge(source_id="mod.py:a", target_id="mod.py:b", kind="calls",
+                  file_path="mod.py")
+        assert e4.line_number == 0
+        assert e4.line_start == 0
+
+        db.upsert_edge(e3)
+        row = db.conn.execute(
+            "SELECT line_number, line_start FROM edges WHERE source_id=? AND target_id=?",
+            ("mod.py:a", "mod.py:b"),
+        ).fetchone()
+        assert row["line_number"] == 10
+        assert row["line_start"] == 20
+
 
 class TestSearch:
     def test_fts_search_by_name(self, db: GraphDB):

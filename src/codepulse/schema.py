@@ -34,30 +34,36 @@ def _relax_edge_unique_constraint(conn: sqlite3.Connection) -> None:
         return
     create_sql = schema_row[0]
     normalized = create_sql.replace(" ", "").lower()
-    if "unique(source_id,target_id,kind)" in normalized:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS edges_v2 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                file_path TEXT DEFAULT '',
-                line_number INTEGER DEFAULT 0,
-                metadata TEXT DEFAULT '{}',
-                line_start INTEGER DEFAULT 0,
-                line_end INTEGER DEFAULT 0,
-                column_start INTEGER DEFAULT 0,
-                column_end INTEGER DEFAULT 0,
-                confidence REAL DEFAULT 1.0,
-                provenance TEXT DEFAULT 'tree-sitter',
-                resolution_status TEXT DEFAULT 'resolved',
-                UNIQUE(source_id, target_id, kind, file_path, line_start, column_start)
-            );
-            INSERT INTO edges_v2 (id, source_id, target_id, kind, file_path, line_number, metadata, line_start, line_end, column_start, column_end, confidence, provenance, resolution_status)
-                SELECT id, source_id, target_id, kind, file_path, line_number, metadata, line_start, line_end, column_start, column_end, confidence, provenance, resolution_status FROM edges;
-            DROP TABLE edges;
-            ALTER TABLE edges_v2 RENAME TO edges;
-        """)
+    if "unique(source_id,target_id,kind)" not in normalized:
+        return
+
+    conn.execute("SAVEPOINT edge_migration")
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS edges_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT DEFAULT '',
+            line_number INTEGER DEFAULT 0,
+            metadata TEXT DEFAULT '{}',
+            line_start INTEGER DEFAULT 0,
+            line_end INTEGER DEFAULT 0,
+            column_start INTEGER DEFAULT 0,
+            column_end INTEGER DEFAULT 0,
+            confidence REAL DEFAULT 1.0,
+            provenance TEXT DEFAULT 'tree-sitter',
+            resolution_status TEXT DEFAULT 'resolved',
+            UNIQUE(source_id, target_id, kind, file_path, line_start, column_start)
+        )""")
+        conn.execute("""INSERT INTO edges_v2 (id, source_id, target_id, kind, file_path, line_number, metadata, line_start, line_end, column_start, column_end, confidence, provenance, resolution_status)
+            SELECT id, source_id, target_id, kind, file_path, line_number, metadata, line_start, line_end, column_start, column_end, confidence, provenance, resolution_status FROM edges""")
+        conn.execute("DROP TABLE edges")
+        conn.execute("ALTER TABLE edges_v2 RENAME TO edges")
+        conn.execute("RELEASE SAVEPOINT edge_migration")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT edge_migration")
+        raise
 
 
 def _recreate_indexes(conn: sqlite3.Connection) -> None:
