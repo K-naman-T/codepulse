@@ -20,9 +20,12 @@ from codepulse.db import GraphDB, Node, Edge
 
 
 def is_scip_available() -> bool:
+    scip = _which("scip")
+    if not scip:
+        return False
     try:
-        subprocess.run(["scip", "--help"], capture_output=True, timeout=5)
-        return True
+        result = subprocess.run([scip, "--help"], capture_output=True, timeout=5)
+        return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
@@ -44,6 +47,7 @@ def _find_scip_indexer(project_root: str) -> str | None:
 
 def _which(name: str) -> str | None:
     search_dirs = [
+        Path(os.environ.get("HOME", "")) / ".local/bin",
         Path(os.environ.get("HOME", "")) / ".npm-global/bin",
         Path("/usr/local/bin"), Path("/usr/bin"),
     ]

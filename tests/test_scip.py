@@ -57,6 +57,14 @@ class TestSCIPIntegration:
     def test_scip_available(self):
         assert is_scip_available()
 
+    def test_scip_available_from_default_local_bins(self):
+        original_path = os.environ.get("PATH", "")
+        try:
+            os.environ["PATH"] = ""
+            assert is_scip_available()
+        finally:
+            os.environ["PATH"] = original_path
+
     def test_scip_indexer_detected(self, ts_project: Path):
         indexer = _find_scip_indexer(str(ts_project))
         assert indexer is not None
