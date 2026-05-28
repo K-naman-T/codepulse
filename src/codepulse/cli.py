@@ -276,6 +276,26 @@ def validate(ctx: click.Context) -> None:
 
 
 @cli.command()
+@click.argument("manifest", type=click.Path(exists=True))
+@click.option("--output", "-o", default="report.json", help="Output report path")
+def validate_corpus(manifest: str, output: str) -> None:
+    """Validate multiple repos against a corpus manifest."""
+    from codepulse.batch import BatchValidator
+
+    click.echo(f"Validating corpus from {manifest}...")
+    validator = BatchValidator()
+    report = validator.run(manifest, output)
+
+    summary = report["summary"]
+    click.echo(
+        f"Total: {summary['total_repos']}, "
+        f"Passed: {summary['total_passed']}, "
+        f"Failed: {summary['total_failed']}"
+    )
+    click.echo(f"Report written to {output}")
+
+
+@cli.command()
 @click.argument("output", default=None, required=False)
 @click.option("--format", "-f", "fmt", default="gexf", help="Export format: gexf")
 @click.pass_context

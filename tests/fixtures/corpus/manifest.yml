@@ -1,0 +1,10 @@
+repos:
+  - name: python_app
+    url: ../projects/python_app
+    commit: local
+    language: python
+    path: .
+    use_scip: false
+    max_seconds: 30
+    min_symbols: 5
+    max_internal_orphans: 0
