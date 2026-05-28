@@ -68,6 +68,9 @@ Issues = "https://github.com/codepulse/codepulse/issues"
 [project.scripts]
 codepulse = "codepulse.cli:cli"
 
+[tool.setuptools.package-data]
+"codepulse.parsers" = ["*.yml"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["codepulse*"]

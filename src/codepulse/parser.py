@@ -1,4 +1,5 @@
 import importlib
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +48,7 @@ _EXTENSION_MAP: dict[str, str] = {
     ".sc": "scala",
 }
 
-_PARSERS_DIR = Path(__file__).resolve().parent.parent.parent / "parsers"
+_PARSERS_DIR = Path(str(files("codepulse.parsers")))
 
 
 def _load_grammar(grammar_module: str, grammar_function: str | None = None) -> Language:
