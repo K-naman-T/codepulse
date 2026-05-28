@@ -27,6 +27,10 @@ class _CodePulseHandler(FileSystemEventHandler):
         if not event.is_directory:
             self._watcher._on_event(event.src_path)
 
+    def on_moved(self, event):
+        if not event.is_directory:
+            self._watcher._on_moved(event.src_path, event.dest_path)
+
 
 class FileWatcher:
     def __init__(
@@ -59,11 +63,20 @@ class FileWatcher:
             self._pending.add(path)
             self._debounce_timer = time.monotonic() + self.debounce_ms / 1000
 
+    def _on_moved(self, src_path: str, dest_path: str) -> None:
+        with self._lock:
+            if self._should_handle(src_path):
+                self._pending.add(src_path)
+            if self._should_handle(dest_path):
+                self._pending.add(dest_path)
+            self._debounce_timer = time.monotonic() + self.debounce_ms / 1000
+
     def process_pending(self) -> None:
         with self._lock:
             paths = set(self._pending)
             self._pending.clear()
             self._debounce_timer = 0
+        self.last_error = None
         for path in paths:
             try:
                 if os.path.exists(path):

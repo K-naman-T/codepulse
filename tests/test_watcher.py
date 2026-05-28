@@ -76,7 +76,7 @@ class TestFileWatcher:
         nodes = cp.search("foo")
         assert len(nodes) == 0
 
-    def test_watcher_debounce(self, cp: CodePulse, tmp_path: Path):
+    def test_watcher_batches_pending_events(self, cp: CodePulse, tmp_path: Path):
         count = [0]
         watcher = FileWatcher(str(tmp_path), cp)
 
@@ -176,3 +176,37 @@ class TestFileWatcher:
             watcher.process_pending()
         assert watcher.last_error is not None
         assert "index failed" in str(watcher.last_error)
+
+    def test_watcher_last_error_cleared_on_success(self, cp: CodePulse, tmp_path: Path):
+        watcher = FileWatcher(str(tmp_path), cp)
+        watcher.last_error = RuntimeError("stale error")
+        new_file = tmp_path / "good.py"
+        new_file.write_text("def good(): pass\n")
+        watcher._on_event(str(new_file))
+        watcher.process_pending()
+        assert watcher.last_error is None
+
+    def test_watcher_moved_file_removes_old_and_indexes_new(self, cp: CodePulse, tmp_path: Path):
+        src = tmp_path / "oldname.py"
+        src.write_text("def moved_func():\n    pass\n")
+        cp.index_file(str(src))
+
+        old_path = str(src.resolve())
+        assert cp.db.conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE file_path = ?", (old_path,)
+        ).fetchone()[0] > 0
+
+        dst = tmp_path / "newname.py"
+        src.rename(dst)
+        new_path = str(dst.resolve())
+
+        watcher = FileWatcher(str(tmp_path), cp)
+        watcher._on_moved(str(src), str(dst))
+        watcher.process_pending()
+
+        assert cp.db.conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE file_path = ?", (old_path,)
+        ).fetchone()[0] == 0
+        assert cp.db.conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE file_path = ?", (new_path,)
+        ).fetchone()[0] > 0
