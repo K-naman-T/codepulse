@@ -1,5 +1,7 @@
 import pytest
 
+from codepulse.config import CodePulseConfig
+
 try:
     from codepulse.mcp_server import create_server
 except ImportError:
@@ -57,3 +59,13 @@ class TestMCPServerTools:
         tools = await server.list_tools()
         short = [t.name for t in tools if len(t.description or "") < 10]
         assert not short
+
+
+class TestMCPConfig:
+    def test_create_server_accepts_config(self):
+        config = CodePulseConfig(data_dir="/tmp/mcp_config_test")
+        server = create_server(config=config)
+        assert server is not None
+        # The server should be a FastMCP instance with tools
+        import inspect as _inspect
+        assert hasattr(server, "list_tools") or hasattr(server, "call_tool")

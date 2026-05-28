@@ -22,8 +22,9 @@ except ImportError:
     HAS_MCP = False
 
 
-def create_server() -> "FastMCP":
-    config = CodePulseConfig.load()
+def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
+    if config is None:
+        config = CodePulseConfig.load()
     cp = CodePulse(config)
     db = cp.db
 
@@ -195,11 +196,11 @@ def create_server() -> "FastMCP":
     return mcp
 
 
-def main() -> None:
+def main(config: CodePulseConfig | None = None) -> None:
     if not HAS_MCP:
         print("Error: mcp package not installed. Run: pip install 'mcp>=1.0'", file=__import__('sys').stderr)
         __import__('sys').exit(1)
-    server = create_server()
+    server = create_server(config=config)
     server.run(transport="stdio")
 
 

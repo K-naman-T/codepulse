@@ -90,3 +90,11 @@ class TestCLI:
         result = runner.invoke(cli, ["mcp", "--help"])
         assert result.exit_code == 0
         assert "MCP" in result.output
+
+    def test_cli_project_root_in_context(self, runner: CliRunner, tmp_path: Path):
+        project = tmp_path / "rootproj"
+        project.mkdir()
+        result = runner.invoke(cli, ["init", "--path", str(project)])
+        assert result.exit_code == 0
+        config_dir = project / ".codepulse"
+        assert config_dir.exists()

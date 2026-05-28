@@ -24,7 +24,8 @@ from codepulse.embeddings import index_embeddings, get_embedder, serialize_vecto
 @click.pass_context
 def cli(ctx: click.Context, data_dir: str | None) -> None:
     ctx.ensure_object(dict)
-    config = CodePulseConfig.load()
+    ctx.obj["project_root"] = Path.cwd()
+    config = CodePulseConfig.load_for_project(path=str(Path.cwd()))
     if data_dir:
         config.data_dir = data_dir
     ctx.obj["config"] = config
@@ -252,7 +253,7 @@ def analyze(ctx: click.Context, url: str, token: str | None, branch: str | None)
 def mcp(ctx: click.Context) -> None:
     """Start MCP server over stdio for AI agent integration."""
     from codepulse.mcp_server import main as mcp_main
-    mcp_main()
+    mcp_main(config=ctx.obj["config"])
 
 
 @cli.command()

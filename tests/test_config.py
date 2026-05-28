@@ -51,3 +51,23 @@ class TestConfigHelpers:
         config = CodePulseConfig(data_dir=str(tmp_path / "exists"))
         path = config.ensure_data_dir()
         assert path.exists()
+
+
+class TestConfigProjectDiscovery:
+    def test_load_for_project_uses_dot_codepulse(self, tmp_path: Path):
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / ".codepulse").mkdir()
+        config = CodePulseConfig.load_for_project(path=str(project))
+        expected = (project / ".codepulse").resolve()
+        assert Path(config.data_dir).resolve() == expected
+
+    def test_load_for_project_fallback(self):
+        config = CodePulseConfig.load_for_project(
+            path="/tmp/nonexistent_codepulse_test_xyz"
+        )
+        assert config.data_dir == "~/.codepulse"
+
+    def test_load_for_project_no_path_returns_default(self):
+        config = CodePulseConfig.load_for_project()
+        assert config.data_dir == "~/.codepulse"

@@ -57,3 +57,11 @@ class CodePulseConfig(BaseSettings):
         if merged:
             return cls(**merged)
         return cls()
+
+    @classmethod
+    def load_for_project(cls, path: str | None = None) -> "CodePulseConfig":
+        if path is not None:
+            candidate = Path(path) / ".codepulse"
+            if candidate.is_dir():
+                return cls(data_dir=str(candidate.resolve()))
+        return cls()
