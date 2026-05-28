@@ -1,4 +1,4 @@
-"""MCP server — 9 tools optimized for benchmark performance.
+"""MCP server — 10 tools optimized for benchmark performance.
 
 Key design principles (copied from colbymchenry/codegraph):
 1. `context` is the PRIMARY tool — composes search + callers + callees in one call
@@ -9,7 +9,6 @@ Key design principles (copied from colbymchenry/codegraph):
 Usage: codepulse mcp
 """
 
-import json
 from pathlib import Path
 
 from codepulse.config import CodePulseConfig
@@ -62,7 +61,7 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
     @mcp.tool()
     def context(task: str, max_nodes: int = 15) -> str:
         """Primary tool — maps an area. Returns symbols matching the task grouped by file,
-        with signatures, locations, and file-level overview."""
+        with signatures, locations, callers, callees, and node IDs."""
         nodes = cp.search(task, limit=max_nodes)
         if not nodes:
             return f"No symbols matching '{task}'. Try a broader query."
@@ -71,11 +70,21 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
         for n in nodes:
             fname = Path(n.file_path).name
             by_file.setdefault(fname, [])
-            line = f"`{n.name}` ({n.kind})"
+            line = f"`{n.name}` ({n.kind}) `{n.id}`"
             if n.signature:
                 sig_short = n.signature[:80].replace("\n", " ").strip()
                 line += f" — `{sig_short}`"
             by_file[fname].append(f"  {line}")
+            callers = cp.get_callers(n.id, depth=1)
+            if callers:
+                by_file[fname].append(
+                    f"    *Callers:* {', '.join(f'{c[0].name} ({c[1]})' for c in callers[:5])}"
+                )
+            callees = cp.get_callees(n.id, depth=1)
+            if callees:
+                by_file[fname].append(
+                    f"    *Callees:* {', '.join(f'{c[0].name} ({c[1]})' for c in callees[:5])}"
+                )
 
         lines = [f"## Context: {task}", ""]
         for fname, syms in sorted(by_file.items()):
@@ -91,10 +100,10 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
         results = cp.search(query, kind=kind, limit=limit)
         if not results:
             return "No symbols found."
-        lines = ["| Symbol | Kind | File | Line |", "|---|---|---|---|"]
+        lines = ["| ID | Symbol | Kind | File | Line |", "|---|---|---|---|---|"]
         for n in results:
             fname = Path(n.file_path).name
-            lines.append(f"| {n.name} | {n.kind} | {fname} | {n.line_start} |")
+            lines.append(f"| {n.id} | {n.name} | {n.kind} | {fname} | {n.line_start} |")
         return "\n".join(lines)
 
     @mcp.tool()
@@ -135,25 +144,11 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
     @mcp.tool()
     def trace(source: str, target: str) -> str:
         """Trace the call path between two symbols ('how does X reach Y')."""
-        conn = db.conn
-        rows = conn.execute(
-            """WITH RECURSIVE path AS (
-                SELECT source_id, target_id, kind, file_path, line_number, 0 AS depth,
-                       source_id || ' → ' || target_id AS path_str
-                FROM edges WHERE source_id = ?
-                UNION ALL
-                SELECT e.source_id, e.target_id, e.kind, e.file_path, e.line_number, p.depth + 1,
-                       p.path_str || ' → ' || e.target_id
-                FROM edges e JOIN path p ON e.source_id = p.target_id
-                WHERE p.depth < 15 AND e.target_id != p.source_id
-            )
-            SELECT * FROM path WHERE target_id = ? ORDER BY depth LIMIT 1""",
-            (source, target)
-        ).fetchall()
-        if not rows:
+        result = cp.trace_path(source, target, max_depth=15)
+        if result is None:
             return "No path found between these symbols."
-        r = rows[0]
-        return f"**Path ({r['depth']} hops):** {r['path_str']}"
+        path_str = " → ".join(n.id for n in result)
+        return f"**Path ({len(result) - 1} hops):** {path_str}"
 
     @mcp.tool()
     def node(node_id: str) -> str:
@@ -164,9 +159,35 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
             return f"Node '{node_id}' not found. Use `search` or `context` to find symbol IDs, or `file` to view symbols in a file path."
         n = detail.node
         lines = [f"## {n.name} ({n.kind})"]
+        lines.append(f"**ID:** `{n.id}`")
         lines.append(f"**File:** `{n.file_path}:{n.line_start}`")
         if n.signature:
             lines.append(f"```\n{n.signature}\n```")
+        if detail.source:
+            src_lines = detail.source.splitlines()
+            start = max(0, n.line_start - 3)
+            end = min(len(src_lines), n.line_end + 1)
+            excerpt = src_lines[start:end]
+            if excerpt:
+                lines.append("")
+                lines.append("### Source excerpt")
+                lines.append("```")
+                lines.extend(excerpt)
+                lines.append("```")
+        callers = cp.get_callers(node_id, depth=1)
+        if callers:
+            lines.append("")
+            lines.append("### Callers")
+            for c, ek in callers[:5]:
+                fname = Path(c.file_path).name
+                lines.append(f"- `{c.name}` ({c.kind}) — {fname}:{c.line_start} via {ek}")
+        callees = cp.get_callees(node_id, depth=1)
+        if callees:
+            lines.append("")
+            lines.append("### Callees")
+            for c, ek in callees[:5]:
+                fname = Path(c.file_path).name
+                lines.append(f"- `{c.name}` ({c.kind}) — {fname}:{c.line_start} via {ek}")
         return "\n".join(lines)
 
     @mcp.tool()

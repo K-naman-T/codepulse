@@ -1,37 +1,55 @@
+"""Compatibility wrapper — delegates to mcp_server.
+
+This module is deprecated and will be removed in a future version.
+Use codepulse.mcp_server.create_server() or `codepulse mcp` directly.
+"""
+
+import asyncio
+import warnings
+
 from codepulse.graph import CodePulse
+from codepulse.mcp_server import create_server as _create_server
+
+
+def _run(coro):
+    """Run an async coroutine synchronously."""
+    return asyncio.run(coro)
 
 
 class CodePulseMCPServer:
+    """Deprecated compatibility wrapper. Use codepulse.mcp_server directly."""
+
     def __init__(self, cp: CodePulse):
+        warnings.warn(
+            "CodePulseMCPServer is deprecated. Use codepulse.mcp_server.create_server() instead.",
+            DeprecationWarning, stacklevel=2,
+        )
         self.cp = cp
+        self._fastmcp = _create_server(cp.config)
 
     def search_symbols(self, query: str, kind: str | None = None, limit: int = 20) -> str:
-        results = self.cp.search(query, kind=kind, limit=limit)
-        if not results:
-            return "No symbols found."
-        lines: list[str] = []
-        for node in results:
-            sig = f"  {node.signature}" if node.signature else ""
-            lines.append(f"- {node.name} ({node.kind})")
-            lines.append(f"  File: {node.file_path}:{node.line_start}")
-            if sig:
-                lines.append(sig)
-            lines.append("")
-        return "\n".join(lines)
+        result = _run(self._fastmcp.call_tool("search", {"query": query, "kind": kind, "limit": limit}))
+        contents, _ = result
+        for c in contents:
+            if hasattr(c, "text") and c.text:
+                return c.text
+        return str(result)
 
     def find_code(self, task: str, max_nodes: int = 30) -> str:
-        return self.cp.build_context(task, max_nodes=max_nodes)
+        result = _run(self._fastmcp.call_tool("context", {"task": task, "max_nodes": max_nodes}))
+        contents, _ = result
+        for c in contents:
+            if hasattr(c, "text") and c.text:
+                return c.text
+        return str(result)
 
     def get_callers(self, node_id: str, depth: int = 1) -> str:
-        results = self.cp.get_callers(node_id, depth=depth)
-        if not results:
-            return "No callers found."
-        lines: list[str] = []
-        for node, edge_kind in results:
-            lines.append(f"- {node.name} ({node.kind}) via {edge_kind}")
-            lines.append(f"  File: {node.file_path}:{node.line_start}")
-            lines.append("")
-        return "\n".join(lines)
+        result = _run(self._fastmcp.call_tool("callers", {"node_id": node_id, "depth": depth}))
+        contents, _ = result
+        for c in contents:
+            if hasattr(c, "text") and c.text:
+                return c.text
+        return str(result)
 
     def search_similar(self, query: str, limit: int = 10) -> str:
         try:
@@ -41,7 +59,6 @@ class CodePulseMCPServer:
             results = self.cp.db.search_similar(vec, limit=limit)
         except Exception as e:
             return f"Similarity search error: {e}"
-
         if not results:
             return "No similar symbols found. Run `embed` first."
         lines: list[str] = []
@@ -55,18 +72,14 @@ class CodePulseMCPServer:
         return "\n".join(lines)
 
     def get_impact_radius(self, node_id: str, depth: int = 3) -> str:
-        impact = self.cp.get_impact_radius(node_id, depth=depth)
-        if not impact:
-            return "No impact found."
-        lines: list[str] = []
-        for level, nodes in sorted(impact.items()):
-            lines.append(f"Depth {level}:")
-            for node in nodes:
-                lines.append(f"  - {node.name} ({node.kind})")
-                lines.append(f"    File: {node.file_path}:{node.line_start}")
-            lines.append("")
-        return "\n".join(lines)
+        result = _run(self._fastmcp.call_tool("impact", {"node_id": node_id, "depth": depth}))
+        contents, _ = result
+        for c in contents:
+            if hasattr(c, "text") and c.text:
+                return c.text
+        return str(result)
 
 
 def create_mcp_server(cp: CodePulse) -> CodePulseMCPServer:
+    """Deprecated. Use codepulse.mcp_server.create_server() instead."""
     return CodePulseMCPServer(cp)

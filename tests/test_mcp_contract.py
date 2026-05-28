@@ -4,20 +4,22 @@ Verifies each MCP tool returns correct results on a known graph.
 Tests the tool logic directly without async/stdio transport.
 """
 
-import os
-import tempfile
-
 import pytest
 
 from codepulse.db import Edge, GraphDB, Node
 from codepulse.graph import CodePulse, CodePulseConfig
 
+try:
+    from codepulse.mcp_server import create_server
+    HAS_MCP = True
+except ImportError:
+    HAS_MCP = False
+
 
 @pytest.fixture
-def cp():
+def cp(tmp_path):
     """CodePulse instance with a known graph."""
-    tmp = tempfile.mkdtemp()
-    config = CodePulseConfig(data_dir=tmp)
+    config = CodePulseConfig(data_dir=str(tmp_path / ".codepulse"))
     cp = CodePulse(config)
     cp.db.initialize()
 
@@ -45,6 +47,14 @@ def cp():
     cp.db.bulk_import(nodes, edges)
     yield cp
     cp.db.close()
+
+
+@pytest.fixture
+def mcp_server(cp):
+    """MCP FastMCP server instance backed by the known graph."""
+    if not HAS_MCP:
+        pytest.skip("mcp package not installed")
+    return create_server(config=cp.config)
 
 
 class TestSearchTool:
@@ -166,3 +176,70 @@ class TestTraceTool:
     def test_trace_no_path(self, cp):
         result = cp.trace_path("/src/app.py:main", "/nonexistent.py:foo", max_depth=5)
         assert result is None
+
+
+@pytest.mark.asyncio
+class TestMCPTraceTool:
+    async def test_mcp_trace_returns_path(self, mcp_server):
+        result = await mcp_server.call_tool("trace", {
+            "source": "/src/app.py:main",
+            "target": "/src/app.py:validate",
+        })
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "Path" in text
+        assert "main" in text
+        assert "validate" in text
+
+    async def test_mcp_trace_no_path(self, mcp_server):
+        result = await mcp_server.call_tool("trace", {
+            "source": "/src/app.py:main",
+            "target": "/nonexistent.py:foo",
+        })
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "No path" in text or "not found" in text
+
+    async def test_mcp_tool_list_10_tools(self, mcp_server):
+        tools = await mcp_server.list_tools()
+        names = {t.name for t in tools}
+        expected = {
+            "repo_map", "context", "search", "callers", "callees",
+            "impact", "trace", "node", "file", "status",
+        }
+        assert names == expected
+
+    async def test_mcp_search_includes_id_column(self, mcp_server):
+        result = await mcp_server.call_tool("search", {"query": "parse"})
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "ID" in text
+        assert "/src/app.py:parse" in text
+
+    async def test_mcp_context_includes_ids(self, mcp_server):
+        result = await mcp_server.call_tool("context", {"task": "parse", "max_nodes": 5})
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "/src/app.py:parse" in text
+
+    async def test_mcp_context_includes_callers_callees(self, mcp_server):
+        result = await mcp_server.call_tool("context", {"task": "validate", "max_nodes": 5})
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "Callers" in text or "callers" in text
+        assert "main" in text
+
+    async def test_mcp_node_returns_source_callers_callees(self, mcp_server):
+        result = await mcp_server.call_tool("node", {"node_id": "/src/app.py:main"})
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "ID:" in text
+        assert "Callees" in text
+        assert "parse" in text
+
+    async def test_mcp_node_shows_callers_for_called_symbol(self, mcp_server):
+        result = await mcp_server.call_tool("node", {"node_id": "/src/app.py:validate"})
+        contents, _ = result
+        text = contents[0].text if hasattr(contents[0], "text") else str(result)
+        assert "Callers" in text
+        assert "main" in text

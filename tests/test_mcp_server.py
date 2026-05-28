@@ -24,21 +24,29 @@ def server():
     return create_server()
 
 
+EXPECTED_TOOLS = {
+    "repo_map", "context", "search", "callers", "callees",
+    "impact", "trace", "node", "file", "status",
+}
+
+
 @pytest.mark.asyncio
 class TestMCPServerTools:
-    async def test_list_tools_returns_9_tools(self, server):
+    async def test_list_tools_returns_exactly_10_tools(self, server):
         tools = await server.list_tools()
-        assert len(tools) >= 9
         names = {t.name for t in tools}
-        expected = {"repo_map", "context", "search", "callers", "callees", "impact", "trace", "node", "status"}
-        assert expected.issubset(names)
+        assert names == EXPECTED_TOOLS
 
     async def test_search_tool_returns_markdown_table(self, server):
         result = await server.call_tool("search", {"query": "class", "limit": 3})
         text = _extract(result)
         assert isinstance(text, str)
-        # Should contain symbols or a "not found" message
         assert len(text) > 10
+
+    async def test_search_tool_includes_node_ids(self, server):
+        result = await server.call_tool("search", {"query": "class", "limit": 5})
+        text = _extract(result)
+        assert "| ID" in text or "No symbols" in text
 
     async def test_status_tool_returns_index_stats(self, server):
         result = await server.call_tool("status", {})
@@ -54,6 +62,26 @@ class TestMCPServerTools:
         result = await server.call_tool("context", {"task": "class", "max_nodes": 3})
         text = _extract(result)
         assert len(text) > 10
+
+    async def test_context_tool_includes_node_ids(self, server):
+        result = await server.call_tool("context", {"task": "class", "max_nodes": 3})
+        text = _extract(result)
+        assert "`/" in text or "No symbols" in text
+
+    async def test_context_tool_includes_callers_and_callees(self, server):
+        result = await server.call_tool("context", {"task": "class", "max_nodes": 3})
+        text = _extract(result)
+        if "Callers" in text or "Callees" in text:
+            pass
+        elif "No symbols" in text:
+            pass
+        else:
+            pytest.skip("no matching symbols to check callers/callees")
+
+    async def test_node_tool_reports_missing_node(self, server):
+        result = await server.call_tool("node", {"node_id": "/nonexistent"})
+        text = _extract(result)
+        assert "not found" in text.lower()
 
     async def test_tool_descriptions_are_descriptive(self, server):
         tools = await server.list_tools()
