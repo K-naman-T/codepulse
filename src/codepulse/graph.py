@@ -1,6 +1,5 @@
 import hashlib
 import time
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -8,6 +7,7 @@ from typing import Any, Callable
 from codepulse.config import CodePulseConfig
 from codepulse.db import GraphDB, Node, Edge
 from codepulse.parser import SourceParser
+from codepulse.validation import ValidationReport, validate_graph
 
 
 def _escape_like(s: str) -> str:
@@ -305,90 +305,13 @@ class CodePulse:
 
         return "\n".join(lines)
 
-    def validate(self) -> "ValidationReport":
+    def validate(self) -> ValidationReport:
         """Run validation checks on the indexed graph and return a report."""
-        conn = self.db.conn
-        total_nodes = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        total_edges = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-        total_files = conn.execute("SELECT COUNT(DISTINCT file_path) FROM nodes").fetchone()[0]
-
-        kind_counts = dict(
-            conn.execute("SELECT kind, COUNT(*) as cnt FROM nodes GROUP BY kind ORDER BY cnt DESC").fetchall()
-        )
-        edge_kind_counts = dict(
-            conn.execute("SELECT kind, COUNT(*) as cnt FROM edges GROUP BY kind ORDER BY cnt DESC").fetchall()
-        )
-        lang_counts = dict(
-            conn.execute("SELECT language, COUNT(*) as cnt FROM nodes GROUP BY language ORDER BY cnt DESC").fetchall()
-        )
-        error_count = conn.execute("SELECT COUNT(*) FROM edges WHERE kind = 'error'").fetchone()[0]
-
-        orphans = conn.execute(
-            "SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM nodes)"
-        ).fetchone()[0]
-        nodes_with_parent = conn.execute(
-            "SELECT COUNT(*) FROM nodes WHERE parent_id IS NOT NULL"
-        ).fetchone()[0]
-        orphan_edges = conn.execute("""
-            SELECT COUNT(*) FROM edges e
-            WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = e.source_id)
-               OR NOT EXISTS (SELECT 1 FROM nodes WHERE id = e.target_id)
-        """).fetchone()[0]
-
-        return ValidationReport(
-            total_files=total_files,
-            total_nodes=total_nodes,
-            total_edges=total_edges,
-            by_kind=kind_counts,
-            by_edge_kind=edge_kind_counts,
-            by_language=lang_counts,
-            nodes_with_parent=nodes_with_parent,
-            orphan_parent_refs=orphans,
-            orphan_edges=orphan_edges,
-        )
+        return validate_graph(self.db)
 
     def close(self) -> None:
         if self._db:
             self._db.close()
 
 
-@dataclass
-class ValidationReport:
-    total_files: int = 0
-    total_nodes: int = 0
-    total_edges: int = 0
-    by_kind: dict[str, int] = field(default_factory=dict)
-    by_edge_kind: dict[str, int] = field(default_factory=dict)
-    by_language: dict[str, int] = field(default_factory=dict)
-    nodes_with_parent: int = 0
-    orphan_parent_refs: int = 0
-    orphan_edges: int = 0
 
-    def summary(self) -> str:
-        lines = []
-        lines.append(f"Files:      {self.total_files}")
-        lines.append(f"Symbols:    {self.total_nodes}")
-        lines.append(f"Edges:      {self.total_edges}")
-        lines.append("")
-        lines.append("By kind:")
-        for kind, count in sorted(self.by_kind.items(), key=lambda x: -x[1]):
-            lines.append(f"  {kind}: {count}")
-        lines.append("")
-        lines.append("By edge kind:")
-        for kind, count in sorted(self.by_edge_kind.items(), key=lambda x: -x[1]):
-            lines.append(f"  {kind}: {count}")
-        lines.append("")
-        lines.append("By language:")
-        for lang, count in sorted(self.by_language.items(), key=lambda x: -x[1]):
-            lines.append(f"  {lang}: {count}")
-        lines.append("")
-        lines.append(f"Parent-child relationships: {self.nodes_with_parent}")
-        if self.orphan_parent_refs:
-            lines.append(f"  ⚠  Orphan parent refs: {self.orphan_parent_refs}")
-        else:
-            lines.append("  No orphan refs")
-        if self.orphan_edges:
-            lines.append(f"  ⚠  Orphan edges: {self.orphan_edges}")
-        else:
-            lines.append("  No orphan edges")
-        return "\n".join(lines)
