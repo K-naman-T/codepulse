@@ -160,22 +160,24 @@ class CodePulse:
             conn.rollback()
             raise
 
-        # Resolve cross-file call edges by matching target names to known nodes
-        resolved_count = self.db.resolve_cross_file_edges()
-        if resolved_count and on_progress:
-            on_progress(f"Resolved {resolved_count} cross-file calls")
-
         if self.config.use_scip:
             try:
-                from codepulse.compat.scip import index_with_scip
+                from codepulse.compat.scip import index_with_scip, reconcile_scip_edges
                 if on_progress:
                     on_progress("Running SCIP indexer for accurate symbol resolution...")
                 scip_count = index_with_scip(str(search_path), self.db)
                 result.symbols_found += scip_count
                 if on_progress:
                     on_progress(f"SCIP added {scip_count} symbols")
+                reconciled = reconcile_scip_edges(self.db)
+                if reconciled and on_progress:
+                    on_progress(f"Reconciled {reconciled} edges with SCIP")
             except Exception as e:
                 result.errors.append(f"SCIP: {e}")
+
+        resolved_count = self.db.resolve_cross_file_edges()
+        if resolved_count and on_progress:
+            on_progress(f"Resolved {resolved_count} cross-file calls")
 
         return result
 

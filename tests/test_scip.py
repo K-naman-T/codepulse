@@ -292,6 +292,84 @@ class TestFindIndexer:
         assert "scip-python" in str(excinfo.value)
         assert "scip-typescript" in str(excinfo.value)
 
+    def _setup_scip_mocks(self, monkeypatch, tmp_path: Path, documents: list[dict]):
+        """Set up all mocks needed for SCIP indexing: availability, indexer discovery, subprocess."""
+        monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
+        monkeypatch.setattr("codepulse.compat.scip._find_scip_indexer",
+                            lambda _: [("typescript", "/usr/local/bin/scip-typescript")])
+        monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())
+        _mock_indexing_subprocess(monkeypatch, tmp_path / ".codepulse" / "scip", documents)
+        (tmp_path / "tsconfig.json").write_text("{}")
+        (tmp_path / "index.ts").write_text("// placeholder")
+
+    def test_scip_edges_have_scip_provenance(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        """SCIP edges must have provenance='scip', resolution_status='resolved', confidence=1.0, and original symbol in metadata."""
+        self._setup_scip_mocks(monkeypatch, tmp_path, [_make_scip_document("helper.ts")])
+        index_with_scip(str(tmp_path), db)
+
+        rows = db.conn.execute(
+            "SELECT provenance, resolution_status, confidence, metadata FROM edges"
+        ).fetchall()
+
+        for row in rows:
+            assert row["provenance"] == "scip", f"Expected provenance='scip', got {row['provenance']}"
+            assert row["resolution_status"] == "resolved", f"Expected resolution_status='resolved', got {row['resolution_status']}"
+            assert row["confidence"] == 1.0, f"Expected confidence=1.0, got {row['confidence']}"
+            assert '"scip_symbol"' in row["metadata"], f"Expected scip_symbol in metadata, got {row['metadata']}"
+
+    def test_reference_inside_function_uses_enclosing_source_id(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        """SCIP reference inside a function should have source_id = enclosing function node, not file path."""
+        doc = {
+            "relative_path": "main.ts",
+            "occurrences": [
+                {"symbol": "pkg/main/start().", "symbol_roles": 1, "range": [5, 0, 15, 0]},
+                {"symbol": "pkg/Helper#process", "symbol_roles": 0, "range": [10, 4, 10, 15]},
+            ],
+            "symbols": [
+                {"symbol": "pkg/Helper#", "information": {"kind": 4}},
+                {"symbol": "pkg/Helper#process", "information": {"kind": 6}},
+            ],
+        }
+        self._setup_scip_mocks(monkeypatch, tmp_path, [doc])
+        index_with_scip(str(tmp_path), db)
+
+        rows = db.conn.execute("SELECT source_id, target_id, kind FROM edges").fetchall()
+        assert len(rows) > 0, "Expected at least one edge"
+
+        for source_id, target_id, kind in rows:
+            assert ":start" in source_id, (
+                f"Edge source_id should be the enclosing function 'start', got {source_id!r}"
+            )
+            assert source_id != str(tmp_path / "main.ts"), "source_id must not be bare file path"
+            assert ":Helper.process" in target_id, (
+                f"Edge target_id should be Helper.process, got {target_id!r}"
+            )
+
+    def test_two_classes_with_process_resolves_correctly(self, tmp_path: Path, db: GraphDB, monkeypatch):
+        """When two classes define process(), SCIP must resolve the correct qualified name."""
+        doc = {
+            "relative_path": "main.ts",
+            "occurrences": [
+                {"symbol": "pkg/Helper#process", "symbol_roles": 0, "range": [10, 4, 10, 15]},
+            ],
+            "symbols": [
+                {"symbol": "pkg/Helper#", "information": {"kind": 4}},
+                {"symbol": "pkg/Helper#process", "information": {"kind": 6}},
+                {"symbol": "pkg/Processor#", "information": {"kind": 4}},
+                {"symbol": "pkg/Processor#process", "information": {"kind": 6}},
+            ],
+        }
+        self._setup_scip_mocks(monkeypatch, tmp_path, [doc])
+        index_with_scip(str(tmp_path), db)
+
+        rows = db.conn.execute("SELECT source_id, target_id, kind FROM edges").fetchall()
+        assert len(rows) > 0, "Expected at least one edge"
+
+        for source_id, target_id, kind in rows:
+            assert ":Helper.process" in target_id, (
+                f"Edge should target Helper.process, got {target_id!r}"
+            )
+
     def test_bad_scip_conversion_does_not_block_other_indexers(self, tmp_path: Path, db: GraphDB, monkeypatch):
         monkeypatch.setattr("codepulse.compat.scip.is_scip_available", lambda: True)
         monkeypatch.setattr("codepulse.compat.scip._which", _make_which_fake())

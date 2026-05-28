@@ -152,6 +152,14 @@ def _parse_scip_symbol(symbol: str) -> tuple[str, str | None]:
     return (name, "symbol") if name else ("", None)
 
 
+def _unpack_range(rng: list[int]) -> tuple[int, int, int, int]:
+    if len(rng) >= 4:
+        return rng[0], rng[1], rng[2], rng[3]
+    if len(rng) == 3:
+        return rng[0], rng[1], rng[0], rng[2]
+    return 0, 0, 0, 0
+
+
 def _detect_lang(file_path: str) -> str:
     ext = Path(file_path).suffix.lower()
     return {".py": "python", ".ts": "typescript", ".tsx": "typescript",
@@ -174,18 +182,23 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
     count = 0
 
     symbol_to_node_id: dict[str, str] = {}
-    reference_occurrences: list[tuple[str, str, str, int]] = []
+    reference_occurrences: list[tuple[str, str, int, int, int, int]] = []
+    doc_def_ranges: dict[str, list[tuple[int, int, str]]] = {}
 
     for doc in data.get("documents", []):
         rel_path = doc.get("relative_path", "")
         full_path = str(root / rel_path)
         language = _detect_lang(rel_path)
+        defs: list[tuple[int, int, str]] = []
 
         for occ in doc.get("occurrences", []):
             symbol = occ.get("symbol", "")
             roles = occ.get("symbol_roles", 0)
             if not symbol or symbol.startswith("local "):
                 continue
+            rng = occ.get("range", [0, 0, 0, 0])
+
+            ls, cs, le, ce = _unpack_range(rng)
 
             if roles & 1:
                 name, kind = _parse_scip_symbol(symbol)
@@ -198,10 +211,14 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
                     db.upsert_node(Node(
                         id=node_id, file_path=full_path,
                         name=name, kind=kind, language=language,
+                        line_start=ls, line_end=le,
                     ))
                     count += 1
+                defs.append((ls, le, node_id))
             elif roles == 0:
-                reference_occurrences.append((symbol, rel_path, full_path, language))
+                reference_occurrences.append((
+                    symbol, full_path, ls, cs, le, ce,
+                ))
 
         for sym_info in doc.get("symbols", []):
             symbol = sym_info.get("symbol", "")
@@ -220,8 +237,11 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
                     name=name, kind=kind, language=language,
                 ))
                 count += 1
+            defs.append((0, 0, node_id))
 
-    for symbol, rel_path, full_path, language in reference_occurrences:
+        doc_def_ranges[full_path] = defs
+
+    for symbol, full_path, ls, cs, le, ce in reference_occurrences:
         target_id = symbol_to_node_id.get(symbol)
         if not target_id:
             continue
@@ -230,14 +250,48 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
         if target_node:
             target_kind = target_node.kind
 
+        source_id = full_path
+        min_size = float("inf")
+        for def_ls, def_le, def_nid in doc_def_ranges.get(full_path, []):
+            if def_nid == target_id:
+                continue
+            if def_ls <= ls and le <= def_le:
+                size = def_le - def_ls
+                if size < min_size:
+                    min_size = size
+                    source_id = def_nid
+
         edge_kind = "calls" if target_kind in ("function", "method") else "imports" if target_kind == "symbol" else "references"
         edge = Edge(
-            source_id=full_path,
+            source_id=source_id,
             target_id=target_id,
             kind=edge_kind,
             file_path=full_path,
+            line_start=ls,
+            line_end=le,
+            column_start=cs,
+            column_end=ce,
+            provenance="scip",
+            confidence=1.0,
+            resolution_status="resolved",
+            metadata={"scip_symbol": symbol},
         )
         db.upsert_edge(edge)
         count += 1
 
     return count
+
+
+def reconcile_scip_edges(db: GraphDB) -> int:
+    """Remove tree-sitter heuristic edges superseded by SCIP edges at the same source location."""
+    deleted = db.conn.execute("""
+        DELETE FROM edges
+        WHERE provenance = 'tree-sitter'
+        AND (file_path, line_start, column_start) IN (
+            SELECT file_path, line_start, column_start
+            FROM edges
+            WHERE provenance = 'scip'
+        )
+    """).rowcount
+    db.conn.commit()
+    return deleted
