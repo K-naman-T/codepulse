@@ -23,12 +23,13 @@ automatically via OpenCode.
 
 - \`search\` — Search indexed symbols by name
 - \`context\` — Build ranked context from a task description
-- \`trace\` — Find call paths between two symbols
 - \`callers\` — Find what calls a symbol
 - \`callees\` — Find what a symbol calls
 - \`impact\` — Show impact radius of a symbol
+- \`trace\` — Find call paths between two symbols
 - \`node\` — Get source code and signature for a symbol
-- \`explore\` — Search symbols grouped by file
+- \`file\` — View symbols in a file
+- \`repo_map\` — Summarize top files and symbols
 - \`status\` — Check index health
 
 ### Usage
@@ -36,7 +37,7 @@ automatically via OpenCode.
 \`\`\`
 codepulse init     # Initialize a project
 codepulse index .  # Index the codebase
-codepulse serve    # Start MCP server
+codepulse mcp      # Start MCP server
 \`\`\`
 `;
 
@@ -77,8 +78,8 @@ export class Installer {
     const mcpServers = ((config as Record<string, any>).mcpServers as Record<string, any>) ?? {};
 
     mcpServers["codepulse"] = {
-      command: this.pythonPath,
-      args: ["-m", "codepulse", "serve"],
+      command: "codepulse",
+      args: ["mcp"],
       env: {},
     };
 

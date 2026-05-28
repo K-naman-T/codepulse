@@ -16,13 +16,16 @@ export interface SpawnResult {
 export interface SpawnOptions {
   timeout?: number;
   env?: Record<string, string>;
+  stdio?: "pipe" | "inherit";
 }
 
 export class PythonBridge {
   private pythonPath: string;
+  private fallbackArgs: string[];
 
-  constructor(pythonPath: string = "python3") {
+  constructor(pythonPath: string = "python3", fallbackArgs: string[] = ["-m", "codepulse"]) {
     this.pythonPath = pythonPath;
+    this.fallbackArgs = fallbackArgs;
   }
 
   async detectPython(): Promise<PythonVersion> {
@@ -57,15 +60,32 @@ export class PythonBridge {
   }
 
   async spawn(
-    name: string,
+    command: string,
     args: string[],
     options: SpawnOptions = {}
   ): Promise<SpawnResult> {
+    const result = await this.rawSpawn(command, args, options);
+    if (result.exitCode !== null) return result;
+    const fallbackResult = await this.rawSpawn(this.pythonPath, [...this.fallbackArgs, ...args], options);
+    if (fallbackResult.exitCode !== null) return fallbackResult;
+    return {
+      exitCode: null,
+      stdout: result.stdout,
+      stderr: `Command not found: ${command}. Fallback to ${this.pythonPath} ${this.fallbackArgs.join(" ")} also failed: ${result.stderr}`,
+      timedOut: result.timedOut,
+    };
+  }
+
+  private rawSpawn(
+    command: string,
+    args: string[],
+    options: SpawnOptions
+  ): Promise<SpawnResult> {
     return new Promise((resolve) => {
       const timeout = options.timeout ?? 300_000;
-      const child = spawn(this.pythonPath, args, {
+      const child = spawn(command, args, {
         env: { ...process.env, ...options.env },
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: options.stdio === "inherit" ? "inherit" : ["pipe", "pipe", "pipe"],
       });
 
       let stdout = "";

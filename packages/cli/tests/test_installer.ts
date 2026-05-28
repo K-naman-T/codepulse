@@ -48,9 +48,9 @@ describe("Installer", () => {
       readFileSync(join(configDir, "opencode.json"), "utf-8")
     );
     expect(config.mcpServers["codepulse"]).toBeDefined();
-    expect(config.mcpServers["codepulse"].command).toBe("python3");
-    expect(config.mcpServers["codepulse"].args).toContain("codepulse");
-    expect(config.mcpServers["codepulse"].args).toContain("serve");
+    expect(config.mcpServers["codepulse"].command).toBe("codepulse");
+    expect(config.mcpServers["codepulse"].args).toEqual(["mcp"]);
+    expect(config.mcpServers["codepulse"].env).toEqual({});
   });
 
   it("test_uninstall_removes_entry", () => {
@@ -59,7 +59,7 @@ describe("Installer", () => {
       JSON.stringify(
         {
           mcpServers: {
-            codepulse: { command: "python3", args: ["-m", "codepulse", "serve"] },
+            codepulse: { command: "codepulse", args: ["mcp"] },
             other: { command: "echo", args: ["hi"] },
           },
         },
@@ -86,5 +86,8 @@ describe("Installer", () => {
     const content = readFileSync(agentsPath, "utf-8");
     expect(content).toContain("codepulse");
     expect(content).toContain("MCP");
+    expect(content).toContain("repo_map");
+    expect(content).toContain("file");
+    expect(content).not.toContain("explore");
   });
 });
