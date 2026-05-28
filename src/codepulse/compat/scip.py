@@ -31,19 +31,23 @@ def is_scip_available() -> bool:
         return False
 
 
-def _find_scip_indexer(project_root: str) -> str | None:
+def _find_scip_indexer(project_root: str) -> list[str]:
     root = Path(project_root)
-    has_ts = bool(list(root.glob("*.ts")) + list(root.glob("*.tsx")))
-    has_py = bool(list(root.glob("*.py")))
-    has_ts_config = (root / "tsconfig.json").exists() or (root / "package.json").exists() or has_ts
-    has_py_config = (root / "pyproject.toml").exists() or (root / "setup.py").exists() or has_py
+    has_ts_files = bool(list(root.rglob("*.ts")) + list(root.rglob("*.tsx")))
+    has_py_files = bool(list(root.rglob("*.py")))
+    has_ts_config = (root / "tsconfig.json").exists() or (root / "package.json").exists() or has_ts_files
+    has_py_config = has_py_files
 
-    for name in ["scip-typescript", "scip-python"]:
-        found = _which(name)
-        if found and ((name == "scip-typescript" and has_ts_config) or
-                      (name == "scip-python" and has_py_config)):
-            return found
-    return None
+    indexers: list[str] = []
+    if has_ts_config:
+        ts_idx = _which("scip-typescript")
+        if ts_idx:
+            indexers.append(ts_idx)
+    if has_py_config:
+        py_idx = _which("scip-python")
+        if py_idx:
+            indexers.append(py_idx)
+    return indexers
 
 
 def _which(name: str) -> str | None:
@@ -66,33 +70,31 @@ def _which(name: str) -> str | None:
 def index_with_scip(project_root: str, db: GraphDB) -> int:
     if not is_scip_available():
         raise RuntimeError("scip CLI not found")
-    indexer = _find_scip_indexer(project_root)
-    if not indexer:
+    indexers = _find_scip_indexer(project_root)
+    if not indexers:
         raise RuntimeError("No SCIP indexer found for this project")
 
-    _ensure_deps(project_root)
-    try:
-        result = subprocess.run(
-            [indexer, "index", "--output", str(Path(project_root) / "index.scip")],
-            cwd=project_root, capture_output=True, text=True, timeout=300,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Indexer failed: {result.stderr[:500]}")
-    except FileNotFoundError:
-        raise RuntimeError(f"Indexer not found: {indexer}")
+    scip_output_dir = Path(project_root) / ".codepulse" / "scip"
+    scip_output_dir.mkdir(parents=True, exist_ok=True)
 
-    scip_file = Path(project_root) / "index.scip"
-    return _convert_scip_to_graph(str(scip_file), db, project_root) if scip_file.exists() else 0
-
-
-def _ensure_deps(project_root: str) -> None:
-    root = Path(project_root)
-    if (root / "package.json").exists() and not (root / "node_modules").exists():
+    total_count = 0
+    for indexer in indexers:
+        lang = "python" if "scip-python" in indexer else "typescript"
+        output_file = scip_output_dir / f"{lang}.scip"
         try:
-            subprocess.run(["npm", "install", "--no-audit", "--no-fund", "--silent"],
-                           cwd=project_root, capture_output=True, timeout=60)
-        except Exception:
-            pass
+            result = subprocess.run(
+                [indexer, "index", "--output", str(output_file)],
+                cwd=project_root, capture_output=True, text=True, timeout=300,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Indexer {indexer} failed: {result.stderr[:500]}")
+        except FileNotFoundError:
+            raise RuntimeError(f"Indexer not found: {indexer}")
+
+        if output_file.exists():
+            total_count += _convert_scip_to_graph(str(output_file), db, project_root)
+
+    return total_count
 
 
 def _parse_scip_symbol(symbol: str) -> tuple[str, str | None]:

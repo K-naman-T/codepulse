@@ -3,7 +3,9 @@
 SCIP should resolve `obj.method()` to `Helper.process` instead of bare `process`.
 """
 
+import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -17,6 +19,41 @@ pytestmark = pytest.mark.skipif(
     not is_scip_available(),
     reason="scip CLI not installed"
 )
+
+
+def _make_scip_document(relative_path: str) -> dict:
+    """Produce a minimal SCIP document with known symbols for unit-testing graph conversion."""
+    return {
+        "relative_path": relative_path,
+        "occurrences": [
+            {
+                "symbol": "scip-python python . `module`.",
+                "symbol_roles": 1,
+                "range": [0, 0, 0, 0],
+            },
+        ],
+        "symbols": [],
+    }
+
+
+def _mock_indexing_subprocess(monkeypatch, scip_output_dir: Path, documents: list[dict] | None = None):
+    """Replace subprocess.run with a fake that writes an index.scip and returns it on scip print."""
+    if documents is None:
+        documents = []
+    fake_data = json.dumps({"documents": documents})
+
+    def fake_run(args, **kwargs):
+        args_str = " ".join(args)
+        if "--output" in args_str:
+            idx = args.index("--output")
+            out = Path(args[idx + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(fake_data)
+        if "print" in args_str and "--json" in args_str:
+            return type("Result", (), {"returncode": 0, "stdout": fake_data, "stderr": ""})()
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
 
 @pytest.fixture
@@ -53,6 +90,67 @@ def db():
     os.unlink(db_path)
 
 
+class TestFindIndexer:
+    """Tests for _find_scip_indexer — these do not need real indexers beyond availability."""
+
+    def test_returns_list(self, ts_project: Path):
+        indexers = _find_scip_indexer(str(ts_project))
+        assert isinstance(indexers, list)
+
+    def test_returns_empty_list_for_empty_project(self, tmp_path: Path):
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert isinstance(indexers, list)
+        assert len(indexers) == 0
+
+    def test_detects_typescript_indexer(self, ts_project: Path):
+        indexers = _find_scip_indexer(str(ts_project))
+        assert len(indexers) > 0
+        assert any("scip-typescript" in i for i in indexers)
+
+    def test_detects_python_indexer_nested(self, tmp_path: Path):
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert any("scip-python" in i for i in indexers)
+
+    def test_detects_typescript_indexer_nested(self, tmp_path: Path):
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert any("scip-typescript" in i for i in indexers)
+
+    def test_detects_mixed_project(self, tmp_path: Path):
+        pkg = tmp_path / "src" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "module.py").write_text("x = 1")
+        app = tmp_path / "packages" / "app" / "src"
+        app.mkdir(parents=True)
+        (app / "index.ts").write_text("export const x = 1;")
+        (tmp_path / "tsconfig.json").write_text("{}")
+        indexers = _find_scip_indexer(str(tmp_path))
+        assert any("scip-python" in i for i in indexers)
+        assert any("scip-typescript" in i for i in indexers)
+
+    def test_output_path_is_dot_codepulse_scip(self, ts_project: Path, db: GraphDB, monkeypatch):
+        """SCIP output goes to .codepulse/scip/<language>.scip, never project root."""
+        _mock_indexing_subprocess(
+            monkeypatch,
+            ts_project / ".codepulse" / "scip",
+            [_make_scip_document("helper.ts")],
+        )
+        index_with_scip(str(ts_project), db)
+        scip_dir = ts_project / ".codepulse" / "scip"
+        assert scip_dir.is_dir(), f"Expected {scip_dir} to exist"
+        scip_files = list(scip_dir.glob("*.scip"))
+        assert len(scip_files) >= 1, f"Expected .scip files in {scip_dir}"
+        assert not (ts_project / "index.scip").exists(), "Must not write to project root"
+
+
 class TestSCIPIntegration:
     def test_scip_available(self):
         assert is_scip_available()
@@ -66,9 +164,9 @@ class TestSCIPIntegration:
             os.environ["PATH"] = original_path
 
     def test_scip_indexer_detected(self, ts_project: Path):
-        indexer = _find_scip_indexer(str(ts_project))
-        assert indexer is not None
-        assert "scip-typescript" in indexer
+        indexers = _find_scip_indexer(str(ts_project))
+        assert len(indexers) > 0
+        assert any("scip-typescript" in i for i in indexers)
 
     def test_scip_indexes_and_creates_nodes(self, ts_project: Path, db: GraphDB):
         count = index_with_scip(str(ts_project), db)
@@ -85,7 +183,7 @@ class TestSCIPIntegration:
 
     def test_scip_resolves_cross_file(self, ts_project: Path, db: GraphDB):
         """SCIP should resolve method calls to their qualified names."""
-        count = index_with_scip(str(ts_project), db)
+        index_with_scip(str(ts_project), db)
         rows = db.conn.execute("SELECT name, kind FROM nodes WHERE kind = 'method'").fetchall()
         method_names = [r["name"] for r in rows]
         assert any("process" in n for n in method_names), (
