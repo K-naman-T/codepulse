@@ -63,8 +63,25 @@ class TestPythonAppFixtures:
 
     @pytest.mark.skipif(not is_scip_available(), reason="scip CLI not installed")
     def test_scip_qualified_cross_file_targets(self, tmp_path):
+        """scip-python currently emits definitions but no reference occurrences here.
+
+        Lock the strongest stable behavior: SCIP indexing runs cleanly, does not
+        create orphan graph edges, and preserves the cross-file symbols that
+        tree-sitter resolved. If future scip-python starts emitting call
+        references, assert that those targets are qualified instead of bare.
+        """
         cp, report = _index_project(self.PROJECT, use_scip=True, tmp_path=tmp_path)
         assert report.orphan_edges == 0
+        names = {r["name"] for r in cp.db.conn.execute("SELECT name FROM nodes").fetchall()}
+        assert {"User", "AdminUser", "Logger", "run", "create_user"}.issubset(names)
+        scip_call_edges = cp.db.conn.execute(
+            "SELECT target_id FROM edges WHERE provenance = 'scip' AND kind = 'calls'"
+        ).fetchall()
+        if scip_call_edges:
+            targets = [r["target_id"] for r in scip_call_edges]
+            assert any("." in target for target in targets), (
+                f"Expected qualified Python SCIP targets when references exist, got {targets}"
+            )
 
 
 class TestTypeScriptAppFixtures:
