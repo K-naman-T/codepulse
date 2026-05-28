@@ -164,7 +164,7 @@ class TestCompareToGoldenSymbols:
         assert result.symbols.false_positives == 1
         assert result.symbols.false_negatives == 1
 
-    def test_allowed_external_suppresses_fp(self):
+    def test_external_symbols_do_not_count_as_fp(self):
         db = _fresh_db(
             nodes=[Node(id="external:module:os", name="os", kind="external_module",
                          file_path="/p/accuracy.py", line_start=1, line_end=1,
@@ -176,6 +176,17 @@ class TestCompareToGoldenSymbols:
         # external_module nodes are already filtered out, should not appear
         assert result.symbols.true_positives == 0
         assert result.symbols.false_positives == 0
+
+    def test_allowed_external_does_not_hide_user_symbols(self):
+        db = _fresh_db(
+            nodes=[Node(id="/p/accuracy.py:print", name="print", kind="function",
+                         file_path="/p/accuracy.py", line_start=1, line_end=2,
+                         language="python")],
+            edges=[],
+        )
+        manifest = _manifest(symbols=[], allowed_external=["print"])
+        result = compare_to_golden(db, manifest)
+        assert result.symbols.false_positives == 1
 
 
 class TestCompareToGoldenEdges:
@@ -399,8 +410,8 @@ class TestAccuracyPythonIntegration:
 
     def test_calls_imports_detected(self, golden_db_for_python, python_golden_manifest):
         result = compare_to_golden(golden_db_for_python, python_golden_manifest)
-        # Expected: 10 calls, 2 imports = 12 total edges in manifest
-        assert result.calls.true_positives >= 8, (
+        # Expected: 13 calls and 2 imports; require at least the 0.85 recall threshold.
+        assert result.calls.true_positives >= 11, (
             f"calls TP: {result.calls.true_positives}"
         )
         assert result.imports.true_positives == 2, (

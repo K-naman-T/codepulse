@@ -199,12 +199,6 @@ def validate_graph(db: GraphDB) -> ValidationReport:
 # Golden manifest comparison - precision, recall, F1
 # ---------------------------------------------------------------------------
 
-_SYMBOL_KINDS = frozenset({
-    "function", "method", "class", "interface",
-    "struct", "trait", "enum", "type", "object",
-})
-
-
 def _file_key(path: str) -> str:
     """Reduce a file path to its basename for matching."""
     return os.path.basename(path)
@@ -308,8 +302,6 @@ def compare_to_golden(db: GraphDB, manifest: dict) -> GoldenComparison:
         else:
             parent_name_of[nid] = None
 
-    allowed: set[str] = set(manifest.get("allowed_external", []))
-
     # ------------------------------------------------------------------
     # Parse manifest data
     # ------------------------------------------------------------------
@@ -356,9 +348,7 @@ def compare_to_golden(db: GraphDB, manifest: dict) -> GoldenComparison:
     # False positives: DB has extra symbols not in manifest
     for key in db_sym_key:
         if key not in m_sym_key:
-            _, name, _ = key
-            if name not in allowed:
-                sym.false_positives += 1
+            sym.false_positives += 1
 
     # False negatives: manifest has symbols missing from DB
     for key in m_sym_key:
