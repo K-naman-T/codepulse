@@ -1,3 +1,4 @@
+import hashlib
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -72,33 +73,88 @@ class CodePulse:
             )
         ]
 
-        # Remove stale data for the indexed path before re-indexing
         resolved = str(search_path.resolve())
-        self.db.conn.execute("DELETE FROM edges WHERE file_path LIKE ?", [f"{resolved}%"])
-        self.db.conn.execute("DELETE FROM nodes WHERE file_path LIKE ?", [f"{resolved}%"])
-        self.db.conn.commit()
+        conn = self.db.conn
 
-        for file_path in files:
-            try:
-                if on_progress:
-                    on_progress(f"Indexing {file_path}")
-                symbols, refs = self.parser.parse_file(str(file_path))
-                batch_nodes.extend(symbols)
-                batch_edges.extend(refs)
-                result.files_indexed += 1
-                result.symbols_found += len(symbols)
-                result.edges_found += len(refs)
+        # Wrap deletion and import in a single transaction so a mid-way failure
+        # never leaves the graph in a half-deleted state.
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            # Delete stale data for the indexed path using exact path matching.
+            # The trailing /% ensures /repo/src does not match /repo/src-old.
+            conn.execute(
+                "DELETE FROM edges WHERE file_path = ? OR file_path LIKE ?",
+                [resolved, f"{resolved}/%"],
+            )
 
-                if len(batch_nodes) > 500:
-                    self.db.bulk_import(batch_nodes, batch_edges)
-                    batch_nodes.clear()
-                    batch_edges.clear()
+            old_paths = conn.execute(
+                "SELECT DISTINCT file_path FROM nodes WHERE file_path = ? OR file_path LIKE ?",
+                [resolved, f"{resolved}/%"],
+            ).fetchall()
+            for (old_path,) in old_paths:
+                conn.execute(
+                    "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                    (old_path,),
+                )
+                conn.execute(
+                    "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
+                    (old_path,),
+                )
+                conn.execute("DELETE FROM nodes WHERE file_path = ?", (old_path,))
 
-            except Exception as e:
-                result.errors.append(f"{file_path}: {e}")
+            conn.execute(
+                "DELETE FROM files WHERE path = ? OR path LIKE ?",
+                [resolved, f"{resolved}/%"],
+            )
 
-        if batch_nodes:
-            self.db.bulk_import(batch_nodes, batch_edges)
+            for file_path in files:
+                try:
+                    if on_progress:
+                        on_progress(f"Indexing {file_path}")
+                    symbols, refs = self.parser.parse_file(str(file_path))
+                    batch_nodes.extend(symbols)
+                    batch_edges.extend(refs)
+                    result.files_indexed += 1
+                    result.symbols_found += len(symbols)
+                    result.edges_found += len(refs)
+
+                    fpath = str(file_path.resolve())
+                    lang = self.parser.detect_language(fpath) or ""
+                    try:
+                        content_hash = hashlib.md5(
+                            open(fpath, "rb").read()
+                        ).hexdigest()
+                    except OSError:
+                        content_hash = ""
+                    conn.execute(
+                        "INSERT OR REPLACE INTO files (path, language, content_hash) VALUES (?, ?, ?)",
+                        (fpath, lang, content_hash),
+                    )
+
+                    if len(batch_nodes) > 500:
+                        self.db.bulk_import(batch_nodes, batch_edges)
+                        batch_nodes.clear()
+                        batch_edges.clear()
+
+                except Exception as e:
+                    result.errors.append(f"{file_path}: {e}")
+                    fpath = str(file_path.resolve())
+                    try:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO files (path, language, content_hash, error) VALUES (?, ?, ?, ?)",
+                            (fpath, "", "", str(e)),
+                        )
+                    except Exception:
+                        pass
+
+            # Import remaining batch even if it only contains edges (no real symbols)
+            if batch_nodes or batch_edges:
+                self.db.bulk_import(batch_nodes, batch_edges)
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
         # Resolve cross-file call edges by matching target names to known nodes
         resolved_count = self.db.resolve_cross_file_edges()

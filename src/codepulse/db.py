@@ -129,6 +129,17 @@ class GraphDB:
                 VALUES (new.rowid, new.name, new.signature, new.metadata);
             END;
         """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS files (
+                path TEXT PRIMARY KEY,
+                language TEXT NOT NULL DEFAULT '',
+                content_hash TEXT NOT NULL DEFAULT '',
+                indexed_at TEXT DEFAULT (datetime('now')),
+                error TEXT DEFAULT NULL
+            )
+        """)
+
         from codepulse.schema import ensure_schema
         ensure_schema(self.conn)
 
@@ -188,16 +199,22 @@ class GraphDB:
         )
 
     def bulk_import(self, nodes: list[Node], edges: list[Edge]) -> tuple[int, int]:
-        """Import many nodes and edges in a single transaction. Returns (node_count, edge_count)."""
-        self.conn.execute("BEGIN TRANSACTION")
+        """Import many nodes and edges in a single transaction. Returns (node_count, edge_count).
+        Uses savepoint if already inside a transaction so callers can nest safely.
+        """
+        manage_txn = not self.conn.in_transaction
+        if manage_txn:
+            self.conn.execute("BEGIN TRANSACTION")
         try:
             for node in nodes:
                 self._upsert_node_raw(node)
             for edge in edges:
                 self._upsert_edge_raw(edge)
-            self.conn.commit()
+            if manage_txn:
+                self.conn.commit()
         except Exception:
-            self.conn.rollback()
+            if manage_txn:
+                self.conn.rollback()
             raise
         return len(nodes), len(edges)
 
@@ -353,6 +370,7 @@ class GraphDB:
         self.conn.execute("DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)", (file_path,))
         self.conn.execute("DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)", (file_path,))
         self.conn.execute("DELETE FROM nodes WHERE file_path = ?", (file_path,))
+        self.conn.execute("DELETE FROM files WHERE path = ?", (file_path,))
         self.conn.commit()
 
     def resolve_cross_file_edges(self) -> int:
