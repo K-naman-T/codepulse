@@ -76,6 +76,7 @@ include = ["codepulse*"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+xfail_strict = true
 markers = [
     "smoke: marks tests that index real codebases (slower, depends on external state)",
     "scip: marks tests that require SCIP CLI and indexers",

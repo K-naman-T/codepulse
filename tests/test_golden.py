@@ -274,7 +274,3 @@ class TestGoldenKotlin(GoldenBase):
 class TestGoldenScala(GoldenBase):
     LANG = "scala"
     GOLDEN = GOLDEN["scala"]
-
-    @pytest.mark.xfail(reason="Scala functions inside objects get path-prefixed names")
-    def test_all_functions_found(self, parsed):
-        super().test_all_functions_found(parsed)
