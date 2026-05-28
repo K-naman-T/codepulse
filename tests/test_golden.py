@@ -32,12 +32,12 @@ GOLDEN = {
     },
     "rust": {
         "functions": ["create_user", "factorial", "run"],
-        "methods": ["get_name", "is_active"],
+        "methods": ["get_name", "is_active", "greet"],
         "classes": ["User"],
         "interfaces": [],
-        "call_targets": ["factorial", "create_user", "is_active"],
+        "call_targets": ["factorial", "create_user", "is_active", "greet"],
         "imports": [],
-        "method_parents": {"get_name": "User", "is_active": "User"},
+        "method_parents": {"get_name": "User", "is_active": "User", "greet": "User"},
     },
     "java": {
         "functions": [],
@@ -234,7 +234,6 @@ class TestGoldenRust(GoldenBase):
     LANG = "rust"
     GOLDEN = GOLDEN["rust"]
 
-    @pytest.mark.xfail(reason="Rust impl methods detected as 'function' not 'method'")
     def test_all_methods_found(self, parsed):
         super().test_all_methods_found(parsed)
 

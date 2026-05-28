@@ -150,7 +150,7 @@ class SourceParser:
                             in_class = False
                             check = node.parent.parent
                             while check:
-                                if check.type in ("class_definition", "class_declaration", "class_body", "class_specifier", "struct_specifier"):
+                                if check.type in ("class_definition", "class_declaration", "class_body", "class_specifier", "struct_specifier", "impl_item"):
                                     in_class = True
                                     break
                                 check = check.parent
@@ -166,6 +166,12 @@ class SourceParser:
                                 pname_field = p.child_by_field_name("name")
                                 if pname_field:
                                     pname = lines[pname_field.start_point[0]][pname_field.start_point[1]:pname_field.end_point[1]]
+                                    parent_id = symbol_node_id(rel_path, pname)
+                                break
+                            if p.type == "impl_item":
+                                type_field = p.child_by_field_name("type")
+                                if type_field:
+                                    pname = lines[type_field.start_point[0]][type_field.start_point[1]:type_field.end_point[1]]
                                     parent_id = symbol_node_id(rel_path, pname)
                                 break
                             p = p.parent

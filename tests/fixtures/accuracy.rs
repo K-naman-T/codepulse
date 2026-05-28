@@ -1,7 +1,7 @@
 // Rust golden fixture for accuracy testing
 // Symbols:
 //   function: create_user, factorial, run
-//   method: User.get_name, User.is_active
+//   method: User.get_name, User.is_active, User.greet
 //   class: User
 
 /// A user record
@@ -34,8 +34,22 @@ fn factorial(n: u32) -> u32 {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
 
+/// A simple greeting trait
+trait Greeter {
+    fn greet(&self) -> &str;
+}
+
+impl Greeter for User {
+    /// Say hello
+    fn greet(&self) -> &str {
+        "Hello!"
+    }
+}
+
 /// Run the app
 fn run() -> bool {
     let u = create_user("test");
-    u.is_active()
+    u.is_active();
+    u.greet();
+    true
 }
