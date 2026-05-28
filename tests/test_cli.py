@@ -91,15 +91,29 @@ class TestCLI:
         assert result.exit_code == 0
         assert "MCP" in result.output
 
-    def test_cli_data_dir_overrides_project_discovery(self, runner: CliRunner, tmp_path: Path):
+    def test_data_dir_overrides_project_discovery(self, runner: CliRunner, tmp_path: Path):
         project = tmp_path / "proj"
         project.mkdir()
         (project / ".codepulse").mkdir()
         custom_dir = tmp_path / "custom"
         custom_dir.mkdir()
-        result = runner.invoke(cli, ["--data-dir", str(custom_dir), "init", "--path", str(project)])
+        result = runner.invoke(cli, ["--data-dir", str(custom_dir), "validate"])
         assert result.exit_code == 0
-        assert (project / ".codepulse").exists()
+        assert (custom_dir / "graph.db").exists()
+        assert not (project / ".codepulse" / "graph.db").exists()
+
+    def test_env_var_data_dir_overrides_project(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / ".codepulse").mkdir()
+        env_dir = tmp_path / "envdata"
+        env_dir.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CODEPULSE_DATA_DIR", str(env_dir))
+        result = runner.invoke(cli, ["validate"])
+        assert result.exit_code == 0
+        assert (env_dir / "graph.db").exists()
+        assert not (project / ".codepulse" / "graph.db").exists()
 
     def test_init_standalone_mode_false(self, runner: CliRunner, tmp_path: Path):
         project = tmp_path / "rootproj"

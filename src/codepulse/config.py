@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -42,12 +43,11 @@ class CodePulseConfig(BaseSettings):
 
     @classmethod
     def load(cls, path: str | None = None) -> "CodePulseConfig":
-        import os as _os
         prefix = cls.model_config.get("env_prefix", "")
         env_overrides = {
-            key: _os.environ.get(f"{prefix}{key.upper()}")
+            key: os.environ.get(f"{prefix}{key.upper()}")
             for key in cls.model_fields
-            if f"{prefix}{key.upper()}" in _os.environ
+            if f"{prefix}{key.upper()}" in os.environ
         }
         file_data: dict[str, Any] = {}
         if path and Path(path).exists():
@@ -61,8 +61,7 @@ class CodePulseConfig(BaseSettings):
     @classmethod
     def load_for_project(cls, path: str | None = None) -> "CodePulseConfig":
         config = cls.load()
-        import os as _os
-        if "CODEPULSE_DATA_DIR" not in _os.environ:
+        if "CODEPULSE_DATA_DIR" not in os.environ:
             if path is not None:
                 candidate = Path(path) / ".codepulse"
                 if candidate.is_dir():

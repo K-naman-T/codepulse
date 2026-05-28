@@ -37,7 +37,11 @@ def cli(ctx: click.Context, data_dir: str | None) -> None:
 def init(ctx: click.Context, path: str) -> None:
     """Initialize a project for code graph indexing."""
     config = ctx.obj["config"]
-    target = Path(path).resolve()
+    project_root = ctx.obj["project_root"]
+    target = Path(path)
+    if not target.is_absolute():
+        target = project_root / path
+    target = target.resolve()
     config.data_dir = str(target / ".codepulse")
     cp = CodePulse(config)
     cp.init_project()
@@ -52,10 +56,15 @@ def init(ctx: click.Context, path: str) -> None:
 def index(ctx: click.Context, path: str, watch: bool, use_scip: bool) -> None:
     """Index all code files to build the graph."""
     config = ctx.obj["config"]
+    project_root = ctx.obj["project_root"]
+    path_obj = Path(path)
+    if not path_obj.is_absolute():
+        path_obj = project_root / path
+    resolved_path = str(path_obj.resolve())
     if use_scip:
         config.use_scip = True
     cp = CodePulse(config)
-    result = cp.index_all(path)
+    result = cp.index_all(resolved_path)
 
     click.echo(f"Files indexed: {result.files_indexed}")
     click.echo(f"Symbols found: {result.symbols_found}")
@@ -65,8 +74,8 @@ def index(ctx: click.Context, path: str, watch: bool, use_scip: bool) -> None:
             click.echo(f"Error: {err}", err=True)
 
     if watch:
-        click.echo(f"Watching {path} for changes...")
-        w = FileWatcher(path, cp, debounce_ms=config.watch_debounce_ms)
+        click.echo(f"Watching {resolved_path} for changes...")
+        w = FileWatcher(resolved_path, cp, debounce_ms=config.watch_debounce_ms)
 
         def on_index(msg: str) -> None:
             click.echo(msg)
