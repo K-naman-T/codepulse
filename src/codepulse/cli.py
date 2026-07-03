@@ -184,6 +184,58 @@ def embed(ctx: click.Context, backend: str, model: str | None) -> None:
     click.echo(f"Embedded {count} symbols.")
 
 
+@cli.group()
+def note() -> None:
+    """Attach and search human/agent notes on indexed symbols."""
+
+
+@note.command("add")
+@click.argument("symbol_id")
+@click.argument("note_text")
+@click.option("--source", default="human", help="Note source label, e.g. human or agent")
+@click.pass_context
+def note_add(ctx: click.Context, symbol_id: str, note_text: str, source: str) -> None:
+    """Attach a note to a symbol id."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    created = cp.add_symbol_note(symbol_id, note_text, source=source)
+    click.echo(f"Added note {created.id} to {created.symbol_id}")
+
+
+@note.command("list")
+@click.argument("symbol_id")
+@click.option("--limit", "-l", default=20, help="Max notes")
+@click.pass_context
+def note_list(ctx: click.Context, symbol_id: str, limit: int) -> None:
+    """List notes attached to a symbol id."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    notes = cp.list_symbol_notes(symbol_id, limit=limit)
+    if not notes:
+        click.echo("No notes found.")
+        return
+    for item in notes:
+        click.echo(f"[{item.id}] {item.symbol_id} · {item.source} · {item.created_at}")
+        click.echo(f"  {item.note}")
+
+
+@note.command("search")
+@click.argument("query")
+@click.option("--limit", "-l", default=20, help="Max notes")
+@click.pass_context
+def note_search(ctx: click.Context, query: str, limit: int) -> None:
+    """Search symbol notes via FTS5."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    notes = cp.search_symbol_notes(query, limit=limit)
+    if not notes:
+        click.echo("No notes found.")
+        return
+    for item in notes:
+        click.echo(f"[{item.id}] {item.symbol_id} · {item.source} · {item.created_at}")
+        click.echo(f"  {item.note}")
+
+
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-l", default=10, help="Max results")
@@ -294,6 +346,8 @@ def serve(ctx: click.Context) -> None:
             result = server.find_code(args)
         elif cmd == "similar":
             result = server.search_similar(args)
+        elif cmd == "notes":
+            result = "\n".join(n.note for n in cp.search_symbol_notes(args))
         elif cmd == "ping":
             result = "pong"
         else:

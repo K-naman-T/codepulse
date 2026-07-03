@@ -179,3 +179,22 @@ class TestGraphQueries:
         db.delete_file_nodes("del.py")
         assert db.get_node("del.py:X") is None
         assert db.get_node("keep.py:Y") is not None
+
+
+
+class TestSymbolNotes:
+    def test_add_and_list_symbol_notes(self, db: GraphDB):
+        created = db.add_symbol_note("src/app.py:main", "Entry point wires routes", source="test")
+        assert created.id > 0
+        assert created.symbol_id == "src/app.py:main"
+        notes = db.list_symbol_notes("src/app.py:main")
+        assert len(notes) == 1
+        assert notes[0].note == "Entry point wires routes"
+        assert notes[0].source == "test"
+
+    def test_search_symbol_notes(self, db: GraphDB):
+        db.add_symbol_note("src/app.py:main", "Entry point wires FastAPI routes", source="test")
+        db.add_symbol_note("src/db.py:connect", "Database connector owns SQLite setup", source="test")
+        notes = db.search_symbol_notes("FastAPI")
+        assert len(notes) == 1
+        assert notes[0].symbol_id == "src/app.py:main"

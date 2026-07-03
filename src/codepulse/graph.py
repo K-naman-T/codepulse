@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from codepulse.config import CodePulseConfig
-from codepulse.db import GraphDB, Node, Edge
+from codepulse.db import GraphDB, Node, Edge, SymbolNote
 from codepulse.parser import SourceParser
 
 
@@ -119,6 +119,15 @@ class CodePulse:
 
     def get_impact_radius(self, node_id: str, depth: int = 3) -> dict[int, list[Node]]:
         return self.db.get_impact_radius(node_id, max_depth=depth)
+
+    def add_symbol_note(self, symbol_id: str, note: str, source: str = "human") -> SymbolNote:
+        return self.db.add_symbol_note(symbol_id, note, source=source)
+
+    def list_symbol_notes(self, symbol_id: str, limit: int = 20) -> list[SymbolNote]:
+        return self.db.list_symbol_notes(symbol_id, limit=limit)
+
+    def search_symbol_notes(self, query: str, limit: int = 20) -> list[SymbolNote]:
+        return self.db.search_symbol_notes(query, limit=limit)
 
     def get_node(self, node_id: str, include_source: bool = False) -> NodeDetail | None:
         node = self.db.get_node(node_id)
