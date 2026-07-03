@@ -165,6 +165,44 @@ Open `http://localhost:3000` to see an interactive force-directed graph of your 
 | Kotlin | ✅ Full |
 | Scala | ✅ Full |
 
+## Turbo Indexing
+
+`codepulse index` now uses a **file metadata cache** to skip unchanged files on re-index. On a second run, only changed files are re-parsed — everything else is instant.
+
+```bash
+codepulse index myproject/src
+# First run: indexes everything
+codepulse index myproject/src
+# Second run: ~0s — all files cached
+```
+
+### Cache mechanics
+
+The cache (`indexed_files` table in SQLite) stores: `file_path`, `size`, `mtime_ns`, `content_hash` (blake2b). A file is unchanged when all three match. When a file changes, its old nodes/edges are deleted before re-indexing. **Symbol notes survive** — they are stored in a separate table and are never deleted by the indexer.
+
+### Parallel parsing
+
+Use `--workers N` to parse files in parallel via `ProcessPoolExecutor`. Each worker creates its own `SourceParser` (grammars loaded per-process). SQLite writes remain in the main process.
+
+```bash
+codepulse index myproject --workers 4
+```
+
+### Forcing a full reindex
+
+```bash
+codepulse index myproject --no-cache
+```
+
+### Benchmarks
+
+```bash
+codepulse bench myproject          # local path
+codepulse bench --workers 4 https://github.com/owner/repo   # URL
+```
+
+Output: files/sec, symbols/sec, edges/sec, elapsed time, cache hit/skip counts.
+
 ---
 
 ## SCIP Integration (Optional)
@@ -213,11 +251,12 @@ codepulse/
 │   └── DESIGN.md         # Design system spec
 ├── packages/cli/         # TypeScript CLI (npm)
 ├── parsers/              # Per-language YAML query configs
-├── tests/                # 124 Python tests
+├── tests/                # 170+ Python tests
 │   ├── test_accuracy.py  # Golden file tests
 │   ├── test_languages.py # 17 multi-language tests
 │   ├── test_scip.py      # SCIP resolution accuracy
-│   └── test_smoke.py     # Real-repo regression tests
+│   ├── test_smoke.py     # Real-repo regression tests
+│   └── test_turbo.py     # Turbo indexer cache + parallel tests
 └── scripts/benchmark/    # A/B benchmark system
 ```
 

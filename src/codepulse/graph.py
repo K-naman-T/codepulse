@@ -1,12 +1,16 @@
+import hashlib
+import multiprocessing as _mp
+import os
 import time
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from codepulse.config import CodePulseConfig
 from codepulse.db import GraphDB, Node, Edge, SymbolNote
-from codepulse.parser import SourceParser
+from codepulse.parser import SourceParser, _parse_files_worker
 
 
 @dataclass
@@ -15,12 +19,49 @@ class IndexResult:
     symbols_found: int = 0
     edges_found: int = 0
     errors: list[str] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+    files_skipped: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    workers: int = 1
 
 
 @dataclass
 class NodeDetail:
     node: Node
     source: str | None = None
+
+
+def _file_content_hash(file_path: str) -> str:
+    h = hashlib.blake2b()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _is_file_unchanged(db: GraphDB, file_path: str) -> dict | None:
+    """Return cached metadata when a file can be skipped.
+
+    The warm path must be metadata-only. Re-hashing every unchanged file would
+    turn cache hits into a second full repo read, which defeats the point of a
+    turbo indexer on large trees. The content hash is still recorded on writes
+    for audit/debugging and for future optional verification modes.
+    """
+    meta = db.get_file_meta(file_path)
+    if meta is None:
+        return None
+    try:
+        st = os.stat(file_path)
+    except OSError:
+        return None
+    if st.st_size != meta["size"] or st.st_mtime_ns != meta["mtime_ns"]:
+        return None
+    return meta
+
+
+def _default_workers() -> int:
+    return min(os.cpu_count() or 1, 8)
 
 
 class CodePulse:
@@ -51,18 +92,16 @@ class CodePulse:
         self,
         path: str | None = None,
         on_progress: Callable[[str], None] | None = None,
+        no_cache: bool = False,
+        workers: int = 1,
     ) -> IndexResult:
-        result = IndexResult()
+        start = time.time()
+        result = IndexResult(workers=workers)
         batch_nodes: list[Node] = []
         batch_edges: list[Edge] = []
         search_path = Path(path or ".")
 
-        from codepulse.parser import _EXTENSION_MAP
-        extensions = tuple(
-            self.config.watch_extensions
-            if hasattr(self.config, "watch_extensions") and self.config.watch_extensions
-            else list(_EXTENSION_MAP.keys())
-        )
+        extensions = self._resolve_extensions()
 
         skip_dirs = {"node_modules", ".git", "__pycache__", "dist", "build", ".next", "venv", ".venv", "target", ".tox"}
         files = [
@@ -72,24 +111,10 @@ class CodePulse:
             )
         ]
 
-        for file_path in files:
-            try:
-                if on_progress:
-                    on_progress(f"Indexing {file_path}")
-                symbols, refs = self.parser.parse_file(str(file_path))
-                batch_nodes.extend(symbols)
-                batch_edges.extend(refs)
-                result.files_indexed += 1
-                result.symbols_found += len(symbols)
-                result.edges_found += len(refs)
-
-                if len(batch_nodes) > 500:
-                    self.db.bulk_import(batch_nodes, batch_edges)
-                    batch_nodes.clear()
-                    batch_edges.clear()
-
-            except Exception as e:
-                result.errors.append(f"{file_path}: {e}")
+        if workers > 1:
+            self._index_parallel(files, result, batch_nodes, batch_edges, on_progress, no_cache, workers)
+        else:
+            self._index_sequential(files, result, batch_nodes, batch_edges, on_progress, no_cache)
 
         if batch_nodes:
             self.db.bulk_import(batch_nodes, batch_edges)
@@ -106,7 +131,121 @@ class CodePulse:
             except Exception as e:
                 result.errors.append(f"SCIP: {e}")
 
+        result.elapsed_seconds = time.time() - start
         return result
+
+    def _resolve_extensions(self) -> tuple:
+        from codepulse.parser import _EXTENSION_MAP
+        return tuple(
+            self.config.watch_extensions
+            if self.config.watch_extensions
+            else list(_EXTENSION_MAP.keys())
+        )
+
+    def _index_sequential(
+        self,
+        files: list[Path],
+        result: IndexResult,
+        batch_nodes: list[Node],
+        batch_edges: list[Edge],
+        on_progress: Callable[[str], None] | None,
+        no_cache: bool,
+    ) -> None:
+        for file_path in files:
+            fp = str(file_path)
+            cached = None if no_cache else _is_file_unchanged(self.db, fp)
+            if cached:
+                result.files_skipped += 1
+                result.cache_hits += 1
+                if on_progress:
+                    on_progress(f"Skipping (unchanged) {fp}")
+                continue
+            result.cache_misses += 1
+            try:
+                if on_progress:
+                    on_progress(f"Indexing {fp}")
+                symbols, refs = self.parser.parse_file(fp)
+                # Always clear old graph rows for a refreshed file, even when the
+                # new file parses to zero symbols (e.g. file emptied or changed to
+                # comments only). Symbol notes intentionally live in a separate
+                # table and survive this graph refresh.
+                self.db.delete_file_nodes(fp)
+                batch_nodes.extend(symbols)
+                batch_edges.extend(refs)
+                result.files_indexed += 1
+                result.symbols_found += len(symbols)
+                result.edges_found += len(refs)
+                self._update_file_cache(fp)
+
+                if len(batch_nodes) > 500:
+                    self.db.bulk_import(batch_nodes, batch_edges)
+                    batch_nodes.clear()
+                    batch_edges.clear()
+
+            except Exception as e:
+                result.errors.append(f"{fp}: {e}")
+
+    def _index_parallel(
+        self,
+        files: list[Path],
+        result: IndexResult,
+        batch_nodes: list[Node],
+        batch_edges: list[Edge],
+        on_progress: Callable[[str], None] | None,
+        no_cache: bool,
+        workers: int,
+    ) -> None:
+        files_to_index: list[str] = []
+        for file_path in files:
+            fp = str(file_path)
+            cached = None if no_cache else _is_file_unchanged(self.db, fp)
+            if cached:
+                result.files_skipped += 1
+                result.cache_hits += 1
+                continue
+            result.cache_misses += 1
+            files_to_index.append(fp)
+
+        if not files_to_index:
+            return
+
+        chunk_size = max(1, len(files_to_index) // workers)
+        chunks = [files_to_index[i:i + chunk_size] for i in range(0, len(files_to_index), chunk_size)]
+
+        ctx = _mp.get_context("fork")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as executor:
+            futures = {executor.submit(_parse_files_worker, chunk): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                try:
+                    for fp, symbols, edges, error in future.result():
+                        if error:
+                            result.errors.append(error)
+                            result.files_indexed += 1
+                            continue
+                        # Always clear old graph rows for a refreshed file, even
+                        # when the new parse returns zero symbols.
+                        self.db.delete_file_nodes(fp)
+                        batch_nodes.extend(symbols)
+                        batch_edges.extend(edges)
+                        result.files_indexed += 1
+                        result.symbols_found += len(symbols)
+                        result.edges_found += len(edges)
+                        self._update_file_cache(fp)
+
+                        if len(batch_nodes) > 500:
+                            self.db.bulk_import(batch_nodes, batch_edges)
+                            batch_nodes.clear()
+                            batch_edges.clear()
+                except Exception as e:
+                    result.errors.append(f"Worker error: {e}")
+
+    def _update_file_cache(self, file_path: str) -> None:
+        try:
+            st = os.stat(file_path)
+            ch = _file_content_hash(file_path)
+            self.db.upsert_file_meta(file_path, st.st_size, st.st_mtime_ns, ch)
+        except OSError:
+            pass
 
     def search(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:
         return self.db.search_nodes(query, kind=kind, limit=limit)

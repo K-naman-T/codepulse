@@ -119,6 +119,14 @@ class GraphDB:
                 VALUES (new.id, new.symbol_id, new.note, new.source);
             END;
 
+            CREATE TABLE IF NOT EXISTS indexed_files (
+                file_path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL DEFAULT 0,
+                mtime_ns INTEGER NOT NULL DEFAULT 0,
+                content_hash TEXT NOT NULL DEFAULT '',
+                indexed_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
             CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
             CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
@@ -473,6 +481,31 @@ class GraphDB:
             source=row["source"],
             created_at=row["created_at"],
         )
+
+    def get_file_meta(self, file_path: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM indexed_files WHERE file_path = ?", (file_path,)
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def upsert_file_meta(self, file_path: str, size: int, mtime_ns: int, content_hash: str) -> None:
+        self.conn.execute(
+            """INSERT INTO indexed_files (file_path, size, mtime_ns, content_hash)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(file_path) DO UPDATE SET
+                   size=excluded.size,
+                   mtime_ns=excluded.mtime_ns,
+                   content_hash=excluded.content_hash,
+                   indexed_at=datetime('now')""",
+            (file_path, size, mtime_ns, content_hash),
+        )
+        self.conn.commit()
+
+    def delete_file_meta(self, file_path: str) -> None:
+        self.conn.execute("DELETE FROM indexed_files WHERE file_path = ?", (file_path,))
+        self.conn.commit()
 
     def close(self) -> None:
         if self._conn:
