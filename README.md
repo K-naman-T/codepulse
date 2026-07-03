@@ -16,6 +16,15 @@ codepulse mcp           # AI agent integration
 
 ---
 
+
+## Why CodePulse exists
+
+AI coding agents still inspect codebases like blind grep machines: search, open file, infer, repeat. CodePulse gives them a semantic memory layer: symbols, edges, callers, callees, impact radius, and graph queries through CLI + MCP.
+
+Use it when you want an agent to understand a repo before editing it.
+
+---
+
 ## What it does
 
 CodePulse parses your codebase into a **semantic knowledge graph** stored in SQLite. Instead of grep + read + repeat, you query the graph directly:
@@ -87,6 +96,16 @@ codepulse trace "src/db.ts:connect" --depth 3
 codepulse validate                       # Graph stats
 ```
 
+### Symbol Notes
+
+```bash
+codepulse note add "src/app.py:main" "Entry point wires routes and config"
+codepulse note list "src/app.py:main"
+codepulse note search "routes"
+```
+
+Symbol notes are a local-first memory layer for humans and agents. Attach architecture observations, edit hypotheses, and investigation findings to symbols so the next agent call starts with context instead of rediscovery.
+
 ### AI Agent Integration (MCP)
 
 ```bash
@@ -106,7 +125,7 @@ Then configure your AI agent (OpenCode, Claude Code, Cursor):
 }
 ```
 
-The MCP server provides 9 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `status`.
+The MCP server provides 12 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `add_symbol_note`, `list_symbol_notes`, `search_symbol_notes`, `status`.
 
 ### Web Dashboard
 

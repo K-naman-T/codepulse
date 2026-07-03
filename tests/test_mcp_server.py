@@ -26,9 +26,9 @@ def server():
 class TestMCPServerTools:
     async def test_list_tools_returns_9_tools(self, server):
         tools = await server.list_tools()
-        assert len(tools) >= 9
+        assert len(tools) >= 12
         names = {t.name for t in tools}
-        expected = {"repo_map", "context", "search", "callers", "callees", "impact", "trace", "node", "status"}
+        expected = {"repo_map", "context", "search", "callers", "callees", "impact", "trace", "node", "status", "add_symbol_note", "list_symbol_notes", "search_symbol_notes"}
         assert expected.issubset(names)
 
     async def test_search_tool_returns_markdown_table(self, server):
@@ -57,3 +57,12 @@ class TestMCPServerTools:
         tools = await server.list_tools()
         short = [t.name for t in tools if len(t.description or "") < 10]
         assert not short
+
+
+    async def test_symbol_note_tools_roundtrip(self, server):
+        add = await server.call_tool("add_symbol_note", {"symbol_id": "src/app.py:main", "note": "Entry point owns startup", "source": "test"})
+        assert "Added note" in _extract(add)
+        listed = await server.call_tool("list_symbol_notes", {"symbol_id": "src/app.py:main"})
+        assert "Entry point owns startup" in _extract(listed)
+        searched = await server.call_tool("search_symbol_notes", {"query": "startup"})
+        assert "src/app.py:main" in _extract(searched)

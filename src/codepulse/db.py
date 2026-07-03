@@ -28,6 +28,15 @@ class Edge:
     line_number: int = 0
 
 
+@dataclass
+class SymbolNote:
+    id: int
+    symbol_id: str
+    note: str
+    source: str = "human"
+    created_at: str = ""
+
+
 class GraphDB:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -75,6 +84,40 @@ class GraphDB:
                 dimensions INTEGER NOT NULL DEFAULT 384,
                 indexed_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS symbol_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol_id TEXT NOT NULL,
+                note TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'human',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_notes_symbol ON symbol_notes(symbol_id);
+            CREATE INDEX IF NOT EXISTS idx_notes_created ON symbol_notes(created_at);
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS symbol_notes_fts USING fts5(
+                symbol_id, note, source,
+                content='symbol_notes',
+                content_rowid='id'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS symbol_notes_ai AFTER INSERT ON symbol_notes BEGIN
+                INSERT INTO symbol_notes_fts(rowid, symbol_id, note, source)
+                VALUES (new.id, new.symbol_id, new.note, new.source);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS symbol_notes_ad AFTER DELETE ON symbol_notes BEGIN
+                INSERT INTO symbol_notes_fts(symbol_notes_fts, rowid, symbol_id, note, source)
+                VALUES ('delete', old.id, old.symbol_id, old.note, old.source);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS symbol_notes_au AFTER UPDATE ON symbol_notes BEGIN
+                INSERT INTO symbol_notes_fts(symbol_notes_fts, rowid, symbol_id, note, source)
+                VALUES ('delete', old.id, old.symbol_id, old.note, old.source);
+                INSERT INTO symbol_notes_fts(rowid, symbol_id, note, source)
+                VALUES (new.id, new.symbol_id, new.note, new.source);
+            END;
 
             CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
             CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
@@ -379,6 +422,57 @@ class GraphDB:
             entry["calls"] = [f"{n.name} ({ek})" for n, ek in callees[:5]]
             results.append(entry)
         return results
+
+
+    def add_symbol_note(self, symbol_id: str, note: str, source: str = "human") -> SymbolNote:
+        """Attach a durable note to a symbol id. Notes intentionally do not require
+        a matching node so agents can record hypotheses before an index is complete."""
+        cursor = self.conn.execute(
+            "INSERT INTO symbol_notes (symbol_id, note, source) VALUES (?, ?, ?)",
+            (symbol_id, note, source),
+        )
+        self.conn.commit()
+        note_id = int(cursor.lastrowid)
+        row = self.conn.execute(
+            "SELECT * FROM symbol_notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        return self._row_to_symbol_note(row)
+
+    def list_symbol_notes(self, symbol_id: str, limit: int = 20) -> list[SymbolNote]:
+        rows = self.conn.execute(
+            """SELECT * FROM symbol_notes
+               WHERE symbol_id = ?
+               ORDER BY datetime(created_at) DESC, id DESC
+               LIMIT ?""",
+            (symbol_id, limit),
+        ).fetchall()
+        return [self._row_to_symbol_note(r) for r in rows]
+
+    def search_symbol_notes(self, query: str, limit: int = 20) -> list[SymbolNote]:
+        if not query.strip():
+            rows = self.conn.execute(
+                "SELECT * FROM symbol_notes ORDER BY datetime(created_at) DESC, id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """SELECT sn.* FROM symbol_notes sn
+                   JOIN symbol_notes_fts fts ON sn.id = fts.rowid
+                   WHERE symbol_notes_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (query, limit),
+            ).fetchall()
+        return [self._row_to_symbol_note(r) for r in rows]
+
+    def _row_to_symbol_note(self, row: sqlite3.Row) -> SymbolNote:
+        return SymbolNote(
+            id=row["id"],
+            symbol_id=row["symbol_id"],
+            note=row["note"],
+            source=row["source"],
+            created_at=row["created_at"],
+        )
 
     def close(self) -> None:
         if self._conn:

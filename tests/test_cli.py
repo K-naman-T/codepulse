@@ -90,3 +90,16 @@ class TestCLI:
         result = runner.invoke(cli, ["serve", "--help"])
         assert result.exit_code == 0
         assert "MCP" in result.output or "serve" in result.output
+
+
+    def test_note_add_list_search_cli(self, runner: CliRunner, tmp_path: Path):
+        data_dir = tmp_path / ".codepulse"
+        add = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "add", "src/app.py:main", "Entry point wires routes", "--source", "test"])
+        assert add.exit_code == 0
+        assert "Added note" in add.output
+        listed = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "list", "src/app.py:main"])
+        assert listed.exit_code == 0
+        assert "Entry point wires routes" in listed.output
+        searched = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "search", "routes"])
+        assert searched.exit_code == 0
+        assert "src/app.py:main" in searched.output

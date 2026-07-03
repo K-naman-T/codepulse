@@ -167,6 +167,38 @@ def create_server() -> "FastMCP":
             lines.append(f"```\n{n.signature}\n```")
         return "\n".join(lines)
 
+
+    @mcp.tool()
+    def add_symbol_note(symbol_id: str, note: str, source: str = "agent") -> str:
+        """Attach durable working memory to a symbol. Use this to record architecture
+        observations, edit hypotheses, and investigation findings for later agent calls."""
+        created = cp.add_symbol_note(symbol_id, note, source=source)
+        return f"Added note {created.id} to `{created.symbol_id}`"
+
+    @mcp.tool()
+    def list_symbol_notes(symbol_id: str, limit: int = 20) -> str:
+        """List working-memory notes attached to one symbol id."""
+        notes = cp.list_symbol_notes(symbol_id, limit=limit)
+        if not notes:
+            return "No notes found."
+        lines = ["| ID | Source | Created | Note |", "|---|---|---|---|"]
+        for item in notes:
+            safe_note = item.note.replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {item.id} | {item.source} | {item.created_at} | {safe_note} |")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def search_symbol_notes(query: str, limit: int = 20) -> str:
+        """Search all symbol working-memory notes."""
+        notes = cp.search_symbol_notes(query, limit=limit)
+        if not notes:
+            return "No notes found."
+        lines = ["| Symbol | Source | Created | Note |", "|---|---|---|---|"]
+        for item in notes:
+            safe_note = item.note.replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {item.symbol_id} | {item.source} | {item.created_at} | {safe_note} |")
+        return "\n".join(lines)
+
     @mcp.tool()
     def status() -> str:
         """Check index health and stats."""
