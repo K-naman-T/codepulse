@@ -142,4 +142,5 @@ class TestReindexConsistency:
             r1 = cp.index_all(str(src))
             r2 = cp.index_all(str(src))
             assert r1.symbols_found == r2.symbols_found
-            assert r1.files_indexed == r2.files_indexed
+            assert r2.files_indexed == 0
+            assert r2.files_skipped == r1.files_indexed

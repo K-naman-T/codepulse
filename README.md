@@ -16,6 +16,15 @@ codepulse serve          # AI agent integration (alias: mcp)
 
 ---
 
+
+## Why CodePulse exists
+
+AI coding agents still inspect codebases like blind grep machines: search, open file, infer, repeat. CodePulse gives them a semantic memory layer: symbols, edges, callers, callees, impact radius, and graph queries through CLI + MCP.
+
+Use it when you want an agent to understand a repo before editing it.
+
+---
+
 ## What it does
 
 CodePulse parses your codebase into a **semantic knowledge graph** stored in SQLite. Instead of grep + read + repeat, you query the graph directly:
@@ -70,7 +79,7 @@ Actual CLI output from a sample Python project. Output is shortened for readabil
     ┌──────────────────┐              ┌──────────────────┐
     │   Tree-sitter    │              │  MCP Server      │
     │   Parser         │              │  (stdio)         │
-    │   (12 languages) │              │ 10 AI agent tools│
+    │   (12 languages) │              │ 13 AI agent tools│
     └────────┬─────────┘              └────────┬─────────┘
              │                                 │
              ▼                                 ▼
@@ -115,6 +124,16 @@ codepulse validate                              # Graph stats
 codepulse validate --strict                     # Exit nonzero on issues
 ```
 
+### Symbol Notes
+
+```bash
+codepulse note add "src/app.py:main" "Entry point wires routes and config"
+codepulse note list "src/app.py:main"
+codepulse note search "routes"
+```
+
+Symbol notes are a local-first memory layer for humans and agents. Attach architecture observations, edit hypotheses, and investigation findings to symbols so the next agent call starts with context instead of rediscovery.
+
 ### AI Agent Integration (MCP)
 
 ```bash
@@ -134,7 +153,7 @@ Then configure your AI agent (OpenCode, Claude Code, Cursor):
 }
 ```
 
-The MCP server provides 10 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `file`, `status`.
+The MCP server provides 13 tools: `repo_map`, `context`, `search`, `callers`, `callees`, `impact`, `trace`, `node`, `file`, `add_symbol_note`, `list_symbol_notes`, `search_symbol_notes`, `status`.
 
 
 ---
@@ -155,6 +174,44 @@ The MCP server provides 10 tools: `repo_map`, `context`, `search`, `callers`, `c
 | Swift | ✅ Parsed & tested |
 | Kotlin | ✅ Parsed & tested |
 | Scala | ✅ Parsed & tested |
+
+## Turbo Indexing
+
+`codepulse index` now uses a **file metadata cache** to skip unchanged files on re-index. On a second run, only changed files are re-parsed — everything else is instant.
+
+```bash
+codepulse index myproject/src
+# First run: indexes everything
+codepulse index myproject/src
+# Second run: ~0s — all files cached
+```
+
+### Cache mechanics
+
+The cache (`indexed_files` table in SQLite) stores: `file_path`, `size`, `mtime_ns`, `content_hash` (blake2b). A file is unchanged when all three match. When a file changes, its old nodes/edges are deleted before re-indexing. **Symbol notes survive** — they are stored in a separate table and are never deleted by the indexer.
+
+### Parallel parsing
+
+Use `--workers N` to parse files in parallel via `ProcessPoolExecutor`. Each worker creates its own `SourceParser` (grammars loaded per-process). SQLite writes remain in the main process.
+
+```bash
+codepulse index myproject --workers 4
+```
+
+### Forcing a full reindex
+
+```bash
+codepulse index myproject --no-cache
+```
+
+### Benchmarks
+
+```bash
+codepulse bench myproject          # local path
+codepulse bench --workers 4 https://github.com/owner/repo   # URL
+```
+
+Output: files/sec, symbols/sec, edges/sec, elapsed time, cache hit/skip counts.
 
 ---
 
@@ -194,7 +251,7 @@ codepulse/
 │   ├── db.py             # SQLite graph storage + FTS5
 │   ├── graph.py          # Index, search, callers/callees
 │   ├── cli.py            # Click CLI commands
-│   ├── mcp_server.py     # MCP protocol (10 tools)
+│   ├── mcp_server.py     # MCP protocol (13 tools)
 │   ├── compat/scip.py    # SCIP → SQLite converter
 │   ├── embeddings.py     # Semantic similarity search
 │   ├── config.py         # Config + env vars
@@ -204,7 +261,8 @@ codepulse/
 │   ├── test_accuracy.py  # Golden file tests
 │   ├── test_languages.py # 17 multi-language tests
 │   ├── test_scip.py      # SCIP resolution accuracy
-│   └── test_smoke.py     # Real-repo regression tests
+│   ├── test_smoke.py     # Real-repo regression tests
+│   └── test_turbo.py     # Turbo indexer cache + parallel tests
 └── scripts/benchmark/    # A/B benchmark system
 ```
 

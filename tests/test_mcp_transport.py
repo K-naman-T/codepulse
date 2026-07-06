@@ -79,7 +79,7 @@ def _send(proc, method, params=None, req_id=1):
 class TestMCPStdioTransport:
     """Verify the MCP server launches and communicates via stdio."""
 
-    def test_list_tools_returns_10_tools(self, mcp_stdio):
+    def test_list_tools_returns_expected_tools(self, mcp_stdio):
         proc, _ = mcp_stdio
 
         resp = _send(proc, "initialize", {
@@ -95,7 +95,8 @@ class TestMCPStdioTransport:
         names = {t["name"] for t in tools}
         expected = {
             "repo_map", "context", "search", "callers", "callees",
-            "impact", "trace", "node", "file", "status",
+            "impact", "trace", "node", "file", "add_symbol_note",
+            "list_symbol_notes", "search_symbol_notes", "status",
         }
         assert names == expected, f"Expected {expected}, got {names}"
 

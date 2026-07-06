@@ -54,8 +54,10 @@ def init(ctx: click.Context, path: str) -> None:
 @click.argument("path", default=".")
 @click.option("--watch", "-w", is_flag=True, help="Watch for changes and re-index")
 @click.option("--use-scip", is_flag=True, help="Use SCIP indexer for accurate call graph")
+@click.option("--no-cache", is_flag=True, help="Force full reindex, skipping file cache")
+@click.option("--workers", default=1, type=int, help="Parallel parser workers (default 1 = sequential)")
 @click.pass_context
-def index(ctx: click.Context, path: str, watch: bool, use_scip: bool) -> None:
+def index(ctx: click.Context, path: str, watch: bool, use_scip: bool, no_cache: bool, workers: int) -> None:
     """Index all code files to build the graph."""
     config = ctx.obj["config"]
     project_root = ctx.obj["project_root"]
@@ -66,11 +68,16 @@ def index(ctx: click.Context, path: str, watch: bool, use_scip: bool) -> None:
     if use_scip:
         config.use_scip = True
     cp = CodePulse(config)
-    result = cp.index_all(resolved_path)
+    result = cp.index_all(resolved_path, no_cache=no_cache, workers=workers)
 
     click.echo(f"Files indexed: {result.files_indexed}")
     click.echo(f"Symbols found: {result.symbols_found}")
     click.echo(f"Edges found: {result.edges_found}")
+    if result.elapsed_seconds:
+        click.echo(f"Elapsed: {result.elapsed_seconds:.2f}s")
+    if result.files_skipped:
+        click.echo(f"Files skipped (cached): {result.files_skipped}")
+        click.echo(f"Cache hits: {result.cache_hits}  misses: {result.cache_misses}")
     if result.errors:
         for err in result.errors[:5]:
             click.echo(f"Error: {err}", err=True)
@@ -219,6 +226,58 @@ def embed(ctx: click.Context, backend: str, model: str | None) -> None:
     click.echo(f"Embedded {count} symbols.")
 
 
+@cli.group()
+def note() -> None:
+    """Attach and search human/agent notes on indexed symbols."""
+
+
+@note.command("add")
+@click.argument("symbol_id")
+@click.argument("note_text")
+@click.option("--source", default="human", help="Note source label, e.g. human or agent")
+@click.pass_context
+def note_add(ctx: click.Context, symbol_id: str, note_text: str, source: str) -> None:
+    """Attach a note to a symbol id."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    created = cp.add_symbol_note(symbol_id, note_text, source=source)
+    click.echo(f"Added note {created.id} to {created.symbol_id}")
+
+
+@note.command("list")
+@click.argument("symbol_id")
+@click.option("--limit", "-l", default=20, help="Max notes")
+@click.pass_context
+def note_list(ctx: click.Context, symbol_id: str, limit: int) -> None:
+    """List notes attached to a symbol id."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    notes = cp.list_symbol_notes(symbol_id, limit=limit)
+    if not notes:
+        click.echo("No notes found.")
+        return
+    for item in notes:
+        click.echo(f"[{item.id}] {item.symbol_id} · {item.source} · {item.created_at}")
+        click.echo(f"  {item.note}")
+
+
+@note.command("search")
+@click.argument("query")
+@click.option("--limit", "-l", default=20, help="Max notes")
+@click.pass_context
+def note_search(ctx: click.Context, query: str, limit: int) -> None:
+    """Search symbol notes via FTS5."""
+    config = ctx.obj["config"]
+    cp = CodePulse(config)
+    notes = cp.search_symbol_notes(query, limit=limit)
+    if not notes:
+        click.echo("No notes found.")
+        return
+    for item in notes:
+        click.echo(f"[{item.id}] {item.symbol_id} · {item.source} · {item.created_at}")
+        click.echo(f"  {item.note}")
+
+
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-l", default=10, help="Max results")
@@ -248,9 +307,15 @@ def similar(ctx: click.Context, query: str, limit: int, backend: str, model: str
 @cli.command()
 @click.argument("url")
 @click.option("--token", envvar="GITHUB_TOKEN", help="GitHub token for private repos")
+@click.option("--branch", default=None, help="Branch to analyze (default: main)")
+@click.option("--no-cache", is_flag=True, help="Force full reindex, skipping file cache")
+@click.option("--workers", default=1, type=int, help="Parallel parser workers (default 1 = sequential)")
 @click.pass_context
-def analyze(ctx: click.Context, url: str, token: str | None) -> None:
-    """Clone a repo from URL, index it, and open the graph."""
+def analyze(ctx: click.Context, url: str, token: str | None, branch: str | None, no_cache: bool, workers: int) -> None:
+    """Clone a repo from URL, index it, and open the graph.
+
+    Supports GitHub, GitLab, Bitbucket URLs.
+    """
     from codepulse.cloner import clone_repo, RepoCache
     from codepulse.graph import CodePulse
 
@@ -265,10 +330,14 @@ def analyze(ctx: click.Context, url: str, token: str | None) -> None:
     click.echo(f"Repo at {repo_path}")
 
     cp = CodePulse(config)
-    result = cp.index_all(repo_path)
+    result = cp.index_all(repo_path, no_cache=no_cache, workers=workers)
     click.echo(f"Files indexed: {result.files_indexed}")
     click.echo(f"Symbols found: {result.symbols_found}")
     click.echo(f"Edges found: {result.edges_found}")
+    if result.elapsed_seconds:
+        click.echo(f"Elapsed: {result.elapsed_seconds:.2f}s")
+    if result.files_skipped:
+        click.echo(f"Files skipped (cached): {result.files_skipped}")
 
     click.echo("")
     click.echo("You can now:")
@@ -276,6 +345,71 @@ def analyze(ctx: click.Context, url: str, token: str | None) -> None:
     click.echo("  codepulse repo-map        — inspect top files and symbols")
     click.echo("  codepulse serve           — start MCP server for AI agents")
     click.echo("  codepulse validate --strict  — graph integrity check")
+
+
+@cli.command()
+@click.argument("path_or_url", default=".")
+@click.option("--workers", default=0, type=int, help="Parser workers (0 = auto, min(os.cpu_count(), 8))")
+@click.option("--token", envvar="GITHUB_TOKEN", help="GitHub token for private URL repos")
+@click.pass_context
+def bench(ctx: click.Context, path_or_url: str, workers: int, token: str | None) -> None:
+    """Benchmark indexing performance on a path or git URL."""
+    from codepulse.graph import CodePulse, _default_workers
+
+    config = ctx.obj["config"]
+    num_workers = workers if workers > 0 else _default_workers()
+
+    is_url = "://" in path_or_url or path_or_url.startswith("git@")
+    if is_url:
+        from codepulse.cloner import clone_repo
+        click.echo(f"Benchmark: cloning {path_or_url} ...")
+        repo_path = clone_repo(path_or_url, token=token)
+        click.echo(f"Cloned to {repo_path}")
+        search_path = repo_path
+    else:
+        search_path = path_or_url
+
+    cp = CodePulse(config)
+
+    click.echo(f"Workers: {num_workers}")
+    click.echo(f"Indexing {search_path} ...")
+
+    # Warm cache with sequential first
+    click.echo("--- Warm-up (sequential) ---")
+    warm = cp.index_all(search_path)
+    click.echo(f"  Files: {warm.files_indexed}, Symbols: {warm.symbols_found}, Edges: {warm.edges_found}")
+    if warm.elapsed_seconds:
+        rate_f = warm.files_indexed / warm.elapsed_seconds if warm.elapsed_seconds > 0 else 0
+        rate_s = warm.symbols_found / warm.elapsed_seconds if warm.elapsed_seconds > 0 else 0
+        rate_e = warm.edges_found / warm.elapsed_seconds if warm.elapsed_seconds > 0 else 0
+        click.echo(f"  Elapsed: {warm.elapsed_seconds:.2f}s ({rate_f:.1f} files/s, {rate_s:.1f} sym/s, {rate_e:.1f} edges/s)")
+
+    # Second run with cache
+    click.echo("--- Cached (sequential) ---")
+    cached = cp.index_all(search_path, no_cache=False)
+    click.echo(f"  Files indexed: {cached.files_indexed}, Skipped: {cached.files_skipped}")
+    if cached.elapsed_seconds:
+        click.echo(f"  Elapsed: {cached.elapsed_seconds:.3f}s")
+
+    # Force reindex with parallel workers
+    if num_workers > 1:
+        click.echo(f"--- Parallel ({num_workers} workers) ---")
+        parallel = cp.index_all(search_path, no_cache=True, workers=num_workers)
+        click.echo(f"  Files: {parallel.files_indexed}, Symbols: {parallel.symbols_found}, Edges: {parallel.edges_found}")
+        if parallel.elapsed_seconds:
+            rate_f = parallel.files_indexed / parallel.elapsed_seconds if parallel.elapsed_seconds > 0 else 0
+            rate_s = parallel.symbols_found / parallel.elapsed_seconds if parallel.elapsed_seconds > 0 else 0
+            rate_e = parallel.edges_found / parallel.elapsed_seconds if parallel.elapsed_seconds > 0 else 0
+            click.echo(f"  Elapsed: {parallel.elapsed_seconds:.2f}s ({rate_f:.1f} files/s, {rate_s:.1f} sym/s, {rate_e:.1f} edges/s)")
+
+    click.echo("--- Summary ---")
+    click.echo(f"  Files: {warm.files_indexed + warm.files_skipped}, Symbols: {warm.symbols_found}, Edges: {warm.edges_found}")
+    if warm.elapsed_seconds:
+        click.echo(f"  Warm (seq):  {warm.elapsed_seconds:.2f}s")
+    if cached.elapsed_seconds:
+        click.echo(f"  Cached:      {cached.elapsed_seconds:.3f}s")
+    if num_workers > 1 and parallel.elapsed_seconds:
+        click.echo(f"  Parallel:    {parallel.elapsed_seconds:.2f}s ({num_workers} workers)")
 
 
 @cli.command()
@@ -355,7 +489,6 @@ def export(ctx: click.Context, output: str | None, fmt: str) -> None:
     edges = db.conn.execute("SELECT * FROM edges").fetchall()
 
     _export_gexf(cp, output, nodes, edges)
-
 
 @cli.command()
 @click.argument("task")

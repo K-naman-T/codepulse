@@ -72,6 +72,7 @@ class SourceParser:
     def __init__(self, parsers_dir: str | None = None):
         self._parsers_dir = str(parsers_dir) if parsers_dir else str(_PARSERS_DIR)
         self._grammars: dict[str, Language] = {}
+        self._parsers: dict[str, Parser] = {}
         self._configs: dict[str, dict[str, Any]] = {}
         self._queries: dict[str, dict[str, Query]] = {}
 
@@ -82,6 +83,7 @@ class SourceParser:
         self._configs[language] = config
         grammar = _load_grammar(config["grammar"], config.get("grammar_function"))
         self._grammars[language] = grammar
+        self._parsers[language] = Parser(grammar)
         self._queries[language] = {}
         for name, pattern in config.get("queries", {}).items():
             self._queries[language][name] = Query(grammar, pattern)
@@ -101,7 +103,7 @@ class SourceParser:
         with open(file_path, "rb") as f:
             source = f.read()
 
-        parser = Parser(self._grammars[language])
+        parser = self._parsers[language]
         tree = parser.parse(source)
         root = tree.root_node
         lines = source.decode("utf-8").split("\n")
@@ -286,3 +288,15 @@ class SourceParser:
             ))
 
         return symbols, refs
+
+
+def _parse_files_worker(file_paths: list[str]) -> list[tuple[str, list[Node], list[Edge], str | None]]:
+    sp = SourceParser()
+    results = []
+    for fp in file_paths:
+        try:
+            symbols, edges = sp.parse_file(fp)
+            results.append((fp, symbols, edges, None))
+        except Exception as e:
+            results.append((fp, [], [], str(e)))
+    return results

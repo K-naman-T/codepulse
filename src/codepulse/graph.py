@@ -1,17 +1,16 @@
 import hashlib
+import multiprocessing as _mp
+import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from codepulse.config import CodePulseConfig
-from codepulse.db import GraphDB, Node, Edge
-from codepulse.parser import SourceParser
+from codepulse.db import Edge, GraphDB, Node, SymbolNote
+from codepulse.parser import SourceParser, _parse_files_worker
 from codepulse.validation import ValidationReport, validate_graph
-
-
-def _escape_like(s: str) -> str:
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass
@@ -20,12 +19,47 @@ class IndexResult:
     symbols_found: int = 0
     edges_found: int = 0
     errors: list[str] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+    files_skipped: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    workers: int = 1
 
 
 @dataclass
 class NodeDetail:
     node: Node
     source: str | None = None
+
+
+def _file_content_hash(file_path: str) -> str:
+    h = hashlib.blake2b()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _is_file_unchanged(db: GraphDB, file_path: str) -> dict | None:
+    """Return cached metadata when a file can be skipped."""
+    meta = db.get_file_meta(file_path)
+    if meta is None:
+        return None
+    try:
+        st = os.stat(file_path)
+    except OSError:
+        return None
+    if st.st_size != meta["size"] or st.st_mtime_ns != meta["mtime_ns"]:
+        return None
+    return meta
+
+
+def _default_workers() -> int:
+    return min(os.cpu_count() or 1, 8)
 
 
 class CodePulse:
@@ -56,109 +90,35 @@ class CodePulse:
         self,
         path: str | None = None,
         on_progress: Callable[[str], None] | None = None,
+        no_cache: bool = False,
+        workers: int = 1,
     ) -> IndexResult:
-        result = IndexResult()
+        start = time.time()
+        result = IndexResult(workers=workers)
         batch_nodes: list[Node] = []
         batch_edges: list[Edge] = []
         search_path = Path(path or ".")
 
-        from codepulse.parser import _EXTENSION_MAP
-        extensions = tuple(
-            self.config.watch_extensions
-            if hasattr(self.config, "watch_extensions") and self.config.watch_extensions
-            else list(_EXTENSION_MAP.keys())
-        )
-
-        skip_dirs = {"node_modules", ".git", "__pycache__", "dist", "build", ".next", "venv", ".venv", "target", ".tox"}
+        extensions = self._resolve_extensions()
+        skip_dirs = {
+            "node_modules", ".git", "__pycache__", "dist", "build",
+            ".next", "venv", ".venv", "target", ".tox",
+        }
         files = [
             f for f in search_path.rglob("*")
             if f.suffix in extensions and f.is_file() and not any(
                 part in skip_dirs for part in f.relative_to(search_path).parts
             )
         ]
+        self._prune_missing_files(search_path, files)
 
-        resolved = str(search_path.resolve())
-        conn = self.db.conn
+        if workers > 1:
+            self._index_parallel(files, result, batch_nodes, batch_edges, on_progress, no_cache, workers)
+        else:
+            self._index_sequential(files, result, batch_nodes, batch_edges, on_progress, no_cache)
 
-        # Wrap deletion and import in a single transaction so a mid-way failure
-        # never leaves the graph in a half-deleted state.
-        conn.execute("BEGIN TRANSACTION")
-        try:
-            # Delete stale data for the indexed path using exact path matching.
-            # The trailing /% ensures /repo/src does not match /repo/src-old.
-            conn.execute(
-                "DELETE FROM edges WHERE file_path = ? OR file_path LIKE ? ESCAPE '\\'",
-                [resolved, f"{_escape_like(resolved)}/%"],
-            )
-
-            old_paths = conn.execute(
-                "SELECT DISTINCT file_path FROM nodes WHERE file_path = ? OR file_path LIKE ? ESCAPE '\\'",
-                [resolved, f"{_escape_like(resolved)}/%"],
-            ).fetchall()
-            for (old_path,) in old_paths:
-                conn.execute(
-                    "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                    (old_path,),
-                )
-                conn.execute(
-                    "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                    (old_path,),
-                )
-                conn.execute("DELETE FROM nodes WHERE file_path = ?", (old_path,))
-
-            conn.execute(
-                "DELETE FROM files WHERE path = ? OR path LIKE ? ESCAPE '\\'",
-                [resolved, f"{_escape_like(resolved)}/%"],
-            )
-
-            for file_path in files:
-                try:
-                    if on_progress:
-                        on_progress(f"Indexing {file_path}")
-                    symbols, refs = self.parser.parse_file(str(file_path))
-                    batch_nodes.extend(symbols)
-                    batch_edges.extend(refs)
-                    result.files_indexed += 1
-                    result.symbols_found += len(symbols)
-                    result.edges_found += len(refs)
-
-                    fpath = str(file_path.resolve())
-                    lang = self.parser.detect_language(fpath) or ""
-                    try:
-                        content_hash = hashlib.md5(
-                            open(fpath, "rb").read()
-                        ).hexdigest()
-                    except OSError:
-                        content_hash = ""
-                    conn.execute(
-                        "INSERT OR REPLACE INTO files (path, language, content_hash) VALUES (?, ?, ?)",
-                        (fpath, lang, content_hash),
-                    )
-
-                    if len(batch_nodes) > 500:
-                        self.db.bulk_import(batch_nodes, batch_edges)
-                        batch_nodes.clear()
-                        batch_edges.clear()
-
-                except Exception as e:
-                    result.errors.append(f"{file_path}: {e}")
-                    fpath = str(file_path.resolve())
-                    try:
-                        conn.execute(
-                            "INSERT OR REPLACE INTO files (path, language, content_hash, error) VALUES (?, ?, ?, ?)",
-                            (fpath, "", "", str(e)),
-                        )
-                    except Exception:
-                        pass
-
-            # Import remaining batch even if it only contains edges (no real symbols)
-            if batch_nodes or batch_edges:
-                self.db.bulk_import(batch_nodes, batch_edges)
-
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        if batch_nodes or batch_edges:
+            self.db.bulk_import(batch_nodes, batch_edges)
 
         if self.config.use_scip:
             try:
@@ -179,71 +139,172 @@ class CodePulse:
         if resolved_count and on_progress:
             on_progress(f"Resolved {resolved_count} cross-file calls")
 
+        result.elapsed_seconds = time.time() - start
         return result
 
-    def index_file(self, path: str) -> None:
-        """Incrementally index a single file, replacing stale data for it."""
-        resolved = str(Path(path).resolve())
-        conn = self.db.conn
+    def _resolve_extensions(self) -> tuple[str, ...]:
+        from codepulse.parser import _EXTENSION_MAP
+        return tuple(
+            self.config.watch_extensions
+            if self.config.watch_extensions
+            else list(_EXTENSION_MAP.keys())
+        )
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
-            conn.execute("DELETE FROM edges WHERE file_path = ?", (resolved,))
-            conn.execute(
-                "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                (resolved,),
-            )
-            conn.execute(
-                "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                (resolved,),
-            )
-            conn.execute("DELETE FROM nodes WHERE file_path = ?", (resolved,))
-            conn.execute("DELETE FROM files WHERE path = ?", (resolved,))
-
-            symbols, refs = self.parser.parse_file(resolved)
-            for sym in symbols:
-                self.db._upsert_node_raw(sym)
-            for ref in refs:
-                self.db._upsert_edge_raw(ref)
-
-            lang = self.parser.detect_language(resolved) or ""
+    def _index_sequential(
+        self,
+        files: list[Path],
+        result: IndexResult,
+        batch_nodes: list[Node],
+        batch_edges: list[Edge],
+        on_progress: Callable[[str], None] | None,
+        no_cache: bool,
+    ) -> None:
+        for file_path in files:
+            fp = str(file_path.resolve())
+            cached = None if no_cache else _is_file_unchanged(self.db, fp)
+            if cached:
+                result.files_skipped += 1
+                result.cache_hits += 1
+                self._add_cached_counts(result, fp)
+                if on_progress:
+                    on_progress(f"Skipping (unchanged) {fp}")
+                continue
+            result.cache_misses += 1
             try:
-                content_hash = hashlib.md5(open(resolved, "rb").read()).hexdigest()
-            except OSError:
-                content_hash = ""
-            conn.execute(
-                "INSERT OR REPLACE INTO files (path, language, content_hash) VALUES (?, ?, ?)",
-                (resolved, lang, content_hash),
-            )
+                if on_progress:
+                    on_progress(f"Indexing {fp}")
+                symbols, refs = self.parser.parse_file(fp)
+                self.db.delete_file_nodes(fp)
+                batch_nodes.extend(symbols)
+                batch_edges.extend(refs)
+                result.files_indexed += 1
+                result.symbols_found += len(symbols)
+                result.edges_found += len(refs)
+                self._update_file_cache(fp)
 
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+                if len(batch_nodes) > 500:
+                    self.db.bulk_import(batch_nodes, batch_edges)
+                    batch_nodes.clear()
+                    batch_edges.clear()
+            except Exception as e:
+                result.errors.append(f"{fp}: {e}")
+                result.files_indexed += 1
+                self._record_file_error(fp, e)
 
+    def _index_parallel(
+        self,
+        files: list[Path],
+        result: IndexResult,
+        batch_nodes: list[Node],
+        batch_edges: list[Edge],
+        on_progress: Callable[[str], None] | None,
+        no_cache: bool,
+        workers: int,
+    ) -> None:
+        files_to_index: list[str] = []
+        for file_path in files:
+            fp = str(file_path.resolve())
+            cached = None if no_cache else _is_file_unchanged(self.db, fp)
+            if cached:
+                result.files_skipped += 1
+                result.cache_hits += 1
+                self._add_cached_counts(result, fp)
+                continue
+            result.cache_misses += 1
+            files_to_index.append(fp)
+
+        if not files_to_index:
+            return
+
+        chunk_size = max(1, len(files_to_index) // workers)
+        chunks = [files_to_index[i:i + chunk_size] for i in range(0, len(files_to_index), chunk_size)]
+
+        ctx = _mp.get_context("fork")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as executor:
+            futures = {executor.submit(_parse_files_worker, chunk): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                try:
+                    for fp, symbols, edges, error in future.result():
+                        if error:
+                            result.errors.append(f"{fp}: {error}")
+                            result.files_indexed += 1
+                            self._record_file_error(fp, error)
+                            continue
+                        self.db.delete_file_nodes(fp)
+                        batch_nodes.extend(symbols)
+                        batch_edges.extend(edges)
+                        result.files_indexed += 1
+                        result.symbols_found += len(symbols)
+                        result.edges_found += len(edges)
+                        self._update_file_cache(fp)
+
+                        if len(batch_nodes) > 500:
+                            self.db.bulk_import(batch_nodes, batch_edges)
+                            batch_nodes.clear()
+                            batch_edges.clear()
+                except Exception as e:
+                    result.errors.append(f"Worker error: {e}")
+
+    def _update_file_cache(self, file_path: str) -> None:
+        try:
+            st = os.stat(file_path)
+            ch = _file_content_hash(file_path)
+            self.db.upsert_file_meta(file_path, st.st_size, st.st_mtime_ns, ch)
+        except OSError:
+            pass
+
+    def _record_file_error(self, file_path: str, error: Exception | str) -> None:
+        lang = self.parser.detect_language(file_path) or ""
+        self.db.conn.execute(
+            "INSERT OR REPLACE INTO files (path, language, content_hash, error) VALUES (?, ?, ?, ?)",
+            (file_path, lang, "", str(error)),
+        )
+        self.db.conn.commit()
+
+    def _add_cached_counts(self, result: IndexResult, file_path: str) -> None:
+        row = self.db.conn.execute(
+            "SELECT COUNT(*) AS cnt FROM nodes WHERE file_path = ?",
+            (file_path,),
+        ).fetchone()
+        edge_row = self.db.conn.execute(
+            "SELECT COUNT(*) AS cnt FROM edges WHERE file_path = ?",
+            (file_path,),
+        ).fetchone()
+        result.symbols_found += row["cnt"] if row else 0
+        result.edges_found += edge_row["cnt"] if edge_row else 0
+
+    def _prune_missing_files(self, search_path: Path, files: list[Path]) -> None:
+        resolved = str(search_path.resolve())
+        prefix = f"{_escape_like(resolved)}/%"
+        current = {str(f.resolve()) for f in files}
+        rows = self.db.conn.execute(
+            """SELECT file_path AS path FROM indexed_files
+               WHERE file_path = ? OR file_path LIKE ? ESCAPE '\\'
+               UNION
+               SELECT path FROM files
+               WHERE path = ? OR path LIKE ? ESCAPE '\\'""",
+            (resolved, prefix, resolved, prefix),
+        ).fetchall()
+        for row in rows:
+            old_path = row["path"]
+            if old_path not in current and not Path(old_path).exists():
+                self.db.delete_file_nodes(old_path)
+                self.db.delete_file_meta(old_path)
+
+    def index_file(self, path: str) -> None:
+        """Incrementally index a single file, replacing stale graph data for it."""
+        resolved = str(Path(path).resolve())
+        self.db.delete_file_nodes(resolved)
+        symbols, refs = self.parser.parse_file(resolved)
+        self.db.bulk_import(symbols, refs)
+        self._update_file_cache(resolved)
         self.db.resolve_cross_file_edges()
 
     def delete_file(self, path: str) -> None:
-        """Remove all graph data for a file."""
+        """Remove graph and cache data for a file."""
         resolved = str(Path(path).resolve())
-        conn = self.db.conn
-        conn.execute("BEGIN TRANSACTION")
-        try:
-            conn.execute("DELETE FROM edges WHERE file_path = ?", (resolved,))
-            conn.execute(
-                "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                (resolved,),
-            )
-            conn.execute(
-                "DELETE FROM edges WHERE target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
-                (resolved,),
-            )
-            conn.execute("DELETE FROM nodes WHERE file_path = ?", (resolved,))
-            conn.execute("DELETE FROM files WHERE path = ?", (resolved,))
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        self.db.delete_file_nodes(resolved)
+        self.db.delete_file_meta(resolved)
 
     def search(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:
         return self.db.search_nodes(query, kind=kind, limit=limit)
@@ -263,6 +324,15 @@ class CodePulse:
     def trace_path(self, source: str, target: str, max_depth: int = 10,
                    edge_kinds: set[str] | None = None) -> list[Node] | None:
         return self.db.trace_path(source, target, max_depth=max_depth, edge_kinds=edge_kinds)
+
+    def add_symbol_note(self, symbol_id: str, note: str, source: str = "human") -> SymbolNote:
+        return self.db.add_symbol_note(symbol_id, note, source=source)
+
+    def list_symbol_notes(self, symbol_id: str, limit: int = 20) -> list[SymbolNote]:
+        return self.db.list_symbol_notes(symbol_id, limit=limit)
+
+    def search_symbol_notes(self, query: str, limit: int = 20) -> list[SymbolNote]:
+        return self.db.search_symbol_notes(query, limit=limit)
 
     def get_node(self, node_id: str, include_source: bool = False) -> NodeDetail | None:
         node = self.db.get_node(node_id)
@@ -312,6 +382,3 @@ class CodePulse:
     def close(self) -> None:
         if self._db:
             self._db.close()
-
-
-

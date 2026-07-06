@@ -51,7 +51,7 @@ c = ["tree-sitter-c>=0.23"]
 cpp = ["tree-sitter-cpp>=0.23"]
 swift = ["tree-sitter-swift>=0.7"]
 kotlin = ["tree-sitter-kotlin>=0.23"]
-dart = ["tree-sitter-dart>=0.23"]
+dart = ["tree-sitter-dart>=0.1,<0.2"]
 scala = ["tree-sitter-scala>=0.23"]
 all = [
     "codepulse[python,typescript,go,java,rust,ruby,php,c,cpp,swift,kotlin,dart,scala]",

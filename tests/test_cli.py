@@ -261,11 +261,11 @@ class TestCLI:
         result = runner.invoke(cli, ["--data-dir", str(data_dir), "export", "--format", "json"])
         assert result.exit_code != 0
 
-    def test_analyze_no_branch_option(self, runner: CliRunner):
-        """analyze should not have --branch option."""
+    def test_analyze_branch_option_exists(self, runner: CliRunner):
+        """analyze exposes the branch option from the URL analyzer surface."""
         result = runner.invoke(cli, ["analyze", "--help"])
         assert result.exit_code == 0
-        assert "--branch" not in result.output
+        assert "--branch" in result.output
 
     def test_analyze_output_does_not_suggest_removed_dashboard(
         self, runner: CliRunner, tmp_path: Path, monkeypatch
@@ -287,3 +287,15 @@ class TestCLI:
         assert result.exit_code == 0
         assert "cd web" not in result.output
         assert "codepulse serve" in result.output
+
+    def test_note_add_list_search_cli(self, runner: CliRunner, tmp_path: Path):
+        data_dir = tmp_path / ".codepulse"
+        add = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "add", "src/app.py:main", "Entry point wires routes", "--source", "test"])
+        assert add.exit_code == 0
+        assert "Added note" in add.output
+        listed = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "list", "src/app.py:main"])
+        assert listed.exit_code == 0
+        assert "Entry point wires routes" in listed.output
+        searched = runner.invoke(cli, ["--data-dir", str(data_dir), "note", "search", "routes"])
+        assert searched.exit_code == 0
+        assert "src/app.py:main" in searched.output

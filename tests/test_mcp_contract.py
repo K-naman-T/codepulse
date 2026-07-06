@@ -200,12 +200,13 @@ class TestMCPTraceTool:
         text = contents[0].text if hasattr(contents[0], "text") else str(result)
         assert "No path" in text or "not found" in text
 
-    async def test_mcp_tool_list_10_tools(self, mcp_server):
+    async def test_mcp_tool_list_expected_tools(self, mcp_server):
         tools = await mcp_server.list_tools()
         names = {t.name for t in tools}
         expected = {
             "repo_map", "context", "search", "callers", "callees",
-            "impact", "trace", "node", "file", "status",
+            "impact", "trace", "node", "file", "add_symbol_note",
+            "list_symbol_notes", "search_symbol_notes", "status",
         }
         assert names == expected
 
