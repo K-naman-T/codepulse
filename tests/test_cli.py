@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
+from codepulse import __version__
 from codepulse.cli import cli
 
 
@@ -104,6 +105,18 @@ class TestCLI:
         )
         assert result.exit_code == 0
 
+    def test_init_with_explicit_data_dir_respected(self, runner: CliRunner, tmp_path: Path):
+        data_dir = tmp_path / "customdata"
+        project_dir = tmp_path / "myproj"
+        project_dir.mkdir()
+        result = runner.invoke(cli, ["--data-dir", str(data_dir), "init", "--path", str(project_dir)])
+        assert result.exit_code == 0, result.output
+        assert (data_dir / "graph.db").exists(), f"graph.db should exist in data_dir {data_dir}"
+        assert not (project_dir / ".codepulse" / "graph.db").exists(), \
+            "graph.db should NOT exist in project_dir/.codepulse"
+        assert str(data_dir) in result.output, \
+            f"Output should mention the custom data dir, got: {result.output}"
+
     def test_init_no_path(self, runner: CliRunner, tmp_path: Path):
         project = tmp_path / "noproj"
         project.mkdir()
@@ -113,7 +126,7 @@ class TestCLI:
     def test_version_shows_version(self, runner: CliRunner):
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert __version__ in result.output
 
     def test_mcp_command_exists(self, runner: CliRunner):
         result = runner.invoke(cli, ["mcp", "--help"])

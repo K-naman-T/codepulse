@@ -35,7 +35,7 @@ class TestCodePulse:
         cp.index_all(str(sample_project / "src"))
         sample_py = str((sample_project / "src" / "sample.py").resolve())
         callees = cp.get_callees(f"{sample_py}:calculate_total")
-        assert len(callees) >= 0
+        assert isinstance(callees, list)
 
     def test_get_node(self, cp: CodePulse, sample_project: Path):
         cp.index_all(str(sample_project / "src"))
@@ -68,7 +68,7 @@ class TestCodePulse:
         sample_py = sample_project / "src" / "sample.py"
         sample_py.write_text(sample_py.read_text() + "\ndef new_func():\n    pass\n")
         cp.index_all(str(sample_project / "src"))
-        assert len(first) >= 0
+        assert isinstance(first, list)
 
     def test_index_all_with_progress(self, cp: CodePulse, sample_project: Path):
         progress = []

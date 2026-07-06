@@ -27,6 +27,31 @@ CodePulse parses your codebase into a **semantic knowledge graph** stored in SQL
 
 ---
 
+## Project status
+
+CodePulse is an open-source project focused on code intelligence architecture. It prioritizes readability and correctness over product polish.
+
+- **Local CLI + MCP server** — working today
+- **SQLite graph + FTS5 + tree-sitter** — core and stable
+- **SCIP cross-file resolution** — optional advanced path, improves accuracy
+- **Embeddings** — optional advanced path, needs `sentence-transformers`
+- **No web dashboard** — currently ships CLI and MCP only
+- **Learning-oriented OSS** — contributions and experiments welcome
+
+---
+
+## CLI screenshots
+
+Actual CLI output from a sample Python project. Output is shortened for readability.
+
+<a href="docs/assets/repo-map.svg"><img src="docs/assets/repo-map.svg" alt="codepulse repo-map showing top files and top symbols" width="600"></a>
+
+<a href="docs/assets/search.svg"><img src="docs/assets/search.svg" alt="codepulse search showing symbol results and node IDs" width="600"></a>
+
+<a href="docs/assets/context.svg"><img src="docs/assets/context.svg" alt="codepulse context showing task-focused symbols grouped by file" width="600"></a>
+
+---
+
 ## Architecture
 
 ```
@@ -118,18 +143,18 @@ The MCP server provides 10 tools: `repo_map`, `context`, `search`, `callers`, `c
 
 | Language | Status |
 |---|---|
-| Python | ✅ Full |
-| TypeScript / JavaScript | ✅ Full |
-| Go | ✅ Full |
-| Java | ✅ Full |
-| Rust | ✅ Full |
-| Ruby | ✅ Full |
-| PHP | ✅ Full |
-| C | ✅ Full |
-| C++ | ✅ Full |
-| Swift | ✅ Full |
-| Kotlin | ✅ Full |
-| Scala | ✅ Full |
+| Python | ✅ Parsed & tested |
+| TypeScript / JavaScript | ✅ Parsed & tested |
+| Go | ✅ Parsed & tested |
+| Java | ✅ Parsed & tested |
+| Rust | ✅ Parsed & tested |
+| Ruby | ✅ Parsed & tested |
+| PHP | ✅ Parsed & tested |
+| C | ✅ Parsed & tested |
+| C++ | ✅ Parsed & tested |
+| Swift | ✅ Parsed & tested |
+| Kotlin | ✅ Parsed & tested |
+| Scala | ✅ Parsed & tested |
 
 ---
 
@@ -172,9 +197,9 @@ codepulse/
 │   ├── mcp_server.py     # MCP protocol (10 tools)
 │   ├── compat/scip.py    # SCIP → SQLite converter
 │   ├── embeddings.py     # Semantic similarity search
-│   └── config.py         # Config + env vars
+│   ├── config.py         # Config + env vars
+│   └── parsers/           # Per-language YAML query configs
 ├── packages/cli/         # TypeScript CLI (npm)
-├── parsers/              # Per-language YAML query configs
 ├── tests/                # Python test suite
 │   ├── test_accuracy.py  # Golden file tests
 │   ├── test_languages.py # 17 multi-language tests
@@ -182,6 +207,17 @@ codepulse/
 │   └── test_smoke.py     # Real-repo regression tests
 └── scripts/benchmark/    # A/B benchmark system
 ```
+
+---
+
+## Current limitations
+
+- **File-path-based node IDs** — Node identifiers embed source paths, making them verbose and repo-location-dependent
+- **Cross-file resolution** — Best-effort without SCIP; may produce `unresolved_symbol` noise
+- **`impact` command noise** — Can include unresolved or external-symbol references
+- **Embeddings require extra deps** — `embed` / `similar` need `sentence-transformers` installed separately
+- **No local web UI** — No web dashboard ships with the project today
+- **CLI UX** — Intentionally minimal; JSON output and TUI are future improvements
 
 ---
 

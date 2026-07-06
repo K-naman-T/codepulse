@@ -97,6 +97,7 @@ class GraphDB:
                 vector BLOB NOT NULL,
                 model TEXT NOT NULL DEFAULT '',
                 dimensions INTEGER NOT NULL DEFAULT 384,
+                content_hash TEXT DEFAULT '',
                 indexed_at TEXT DEFAULT (datetime('now'))
             );
 
@@ -142,6 +143,11 @@ class GraphDB:
 
         from codepulse.schema import ensure_schema
         ensure_schema(self.conn)
+
+        # Add content_hash column to embeddings if missing (schema migration)
+        emb_cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(embeddings)").fetchall()}
+        if "content_hash" not in emb_cols:
+            self.conn.execute("ALTER TABLE embeddings ADD COLUMN content_hash TEXT DEFAULT ''")
 
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_edges_reconciliation
@@ -263,6 +269,21 @@ class GraphDB:
             resolution_status=row["resolution_status"],
         )
 
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        FTS5_OPERATOR_PREFIXES = set('+-~^')
+        tokens = query.split()
+        sanitized = []
+        for token in tokens:
+            cleaned = token.replace('"', ' ')
+            cleaned = cleaned.strip()
+            if not cleaned:
+                continue
+            if cleaned[0] in FTS5_OPERATOR_PREFIXES:
+                continue
+            sanitized.append(f'"{cleaned}"')
+        return ' '.join(sanitized)
+
     def search_nodes(self, query: str, kind: str | None = None, limit: int = 20) -> list[Node]:
         if not query.strip():
             sql = "SELECT * FROM nodes"
@@ -279,10 +300,13 @@ class GraphDB:
             sql += " ORDER BY name LIMIT ?"
             params.append(limit)
         else:
+            sanitized = self._sanitize_fts_query(query)
+            if not sanitized.strip():
+                return self.search_nodes("", kind=kind, limit=limit)
             sql = """SELECT n.* FROM nodes n
                      JOIN nodes_fts fts ON n.rowid = fts.rowid
                      WHERE nodes_fts MATCH ?"""
-            params = [query]
+            params = [sanitized]
             if kind:
                 sql += " AND n.kind = ?"
                 params.append(kind)
@@ -561,12 +585,12 @@ class GraphDB:
         ).fetchall()
         return [(self._row_to_node(r), r["edge_count"]) for r in rows]
 
-    def upsert_embedding(self, node_id: str, vector: bytes, model: str = "", dimensions: int = 384) -> None:
+    def upsert_embedding(self, node_id: str, vector: bytes, model: str = "", dimensions: int = 384, content_hash: str = "") -> None:
         self.conn.execute(
-            "INSERT INTO embeddings (node_id, vector, model, dimensions) VALUES (?, ?, ?, ?) "
+            "INSERT INTO embeddings (node_id, vector, model, dimensions, content_hash) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(node_id) DO UPDATE SET vector=excluded.vector, model=excluded.model, "
-            "dimensions=excluded.dimensions, indexed_at=datetime('now')",
-            (node_id, vector, model, dimensions),
+            "dimensions=excluded.dimensions, content_hash=excluded.content_hash, indexed_at=datetime('now')",
+            (node_id, vector, model, dimensions, content_hash),
         )
         self.conn.commit()
 

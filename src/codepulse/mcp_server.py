@@ -1,10 +1,11 @@
-"""MCP server — 10 tools optimized for benchmark performance.
+"""MCP server for CodePulse over stdio.
 
-Key design principles (copied from colbymchenry/codegraph):
-1. `context` is the PRIMARY tool — composes search + callers + callees in one call
-2. `repo_map` gives the codebase overview so the model doesn't thrash
-3. All output is concise markdown — minimal tokens for the model to parse
-4. Tools replace file-reading; AGENTS.md steers the agent to use them
+Small tool surface optimized for code navigation:
+1. `repo_map` first — codebase overview so the model doesn't thrash
+2. `context` / `search` next — primary tools for exploration
+3. `node` / `callers` / `callees` / `impact` / `trace` — targeted follow-ups
+
+All output is concise markdown for human and agent readability.
 
 Usage: codepulse mcp
 """
@@ -219,8 +220,7 @@ def create_server(config: CodePulseConfig | None = None) -> "FastMCP":
 
 def main(config: CodePulseConfig | None = None) -> None:
     if not HAS_MCP:
-        print("Error: mcp package not installed. Run: pip install 'mcp>=1.0'", file=__import__('sys').stderr)
-        __import__('sys').exit(1)
+        raise ImportError("mcp package not installed. Run: pip install 'mcp>=1.0'")
     server = create_server(config=config)
     server.run(transport="stdio")
 

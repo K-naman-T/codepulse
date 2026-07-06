@@ -181,6 +181,37 @@ def validate_graph(db: GraphDB) -> ValidationReport:
             message=f"{len(error_rows)} file(s) have parser errors",
         ))
 
+    orphan_embedding_count = conn.execute(
+        "SELECT COUNT(*) FROM embeddings e WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = e.node_id)"
+    ).fetchone()[0]
+    if orphan_embedding_count:
+        issues.append(ValidationIssue(
+            code="ORPHAN_EMBEDDING_NODE",
+            severity="warning",
+            message=f"{orphan_embedding_count} embedding(s) reference missing nodes",
+        ))
+
+    bad_dimension_rows = conn.execute(
+        "SELECT node_id, length(vector) as bytes, dimensions FROM embeddings"
+    ).fetchall()
+    bad_dimensions = [
+        r for r in bad_dimension_rows
+        if r["bytes"] % 4 != 0 or (r["bytes"] // 4) != r["dimensions"]
+    ]
+
+    dim_counts = conn.execute(
+        "SELECT dimensions, COUNT(*) as cnt FROM embeddings GROUP BY dimensions ORDER BY cnt DESC"
+    ).fetchall()
+    if bad_dimensions or len(dim_counts) > 1:
+        details = ", ".join(f"{r['dimensions']}d: {r['cnt']}" for r in dim_counts)
+        if bad_dimensions:
+            details = f"{len(bad_dimensions)} embedding(s) have vector length metadata mismatches"
+        issues.append(ValidationIssue(
+            code="EMBEDDING_DIMENSION_MISMATCH",
+            severity="warning",
+            message=f"Embeddings have inconsistent dimensions: {details}",
+        ))
+
     return ValidationReport(
         total_files=total_files,
         total_nodes=total_nodes,

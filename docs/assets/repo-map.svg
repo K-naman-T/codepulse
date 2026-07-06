@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" font-family="'SF Mono','Fira Code','Cascadia Code','Consolas',monospace" font-size="13">
+  <rect width="720" height="520" rx="8" fill="#1e1e2e"/>
+  <rect x="0" y="0" width="720" height="32" rx="8" fill="#181825"/>
+  <rect x="0" y="20" width="720" height="12" fill="#181825"/>
+  <circle cx="18" cy="16" r="6" fill="#f38ba8"/>
+  <circle cx="38" cy="16" r="6" fill="#fab387"/>
+  <circle cx="58" cy="16" r="6" fill="#a6e3a1"/>
+  <text x="360" y="21" text-anchor="middle" fill="#6c7086" font-size="12">codepulse repo-map</text>
+
+  <!-- Output -->
+  <text x="16" y="56" fill="#cba6f7" font-weight="bold">## Codebase Overview</text>
+
+  <text x="16" y="80" fill="#89b4fa" font-weight="bold">### Top files</text>
+  <text x="16" y="98" fill="#6c7086">| File         | Symbols | References | Kinds                                    |</text>
+  <text x="16" y="114" fill="#6c7086">|---           |---      |---         |---                                       |</text>
+  <text x="16" y="130" fill="#cdd6f4">| models.py    | 9       | 4          | file,method,function,class               |</text>
+  <text x="16" y="146" fill="#cdd6f4">| main.py      | 1       | 9          | file,function                            |</text>
+  <text x="16" y="162" fill="#cdd6f4">| services.py  | 6       | 4          | file,function,method,class               |</text>
+  <text x="16" y="178" fill="#cdd6f4">| __init__.py  | 0       | 0          | file                                     |</text>
+
+  <text x="16" y="202" fill="#89b4fa" font-weight="bold">### Top symbols</text>
+  <text x="16" y="220" fill="#6c7086">| Symbol              | Kind      | File        | Refs |</text>
+  <text x="16" y="236" fill="#6c7086">|---                  |---        |---          |---   |</text>
+  <text x="16" y="252" fill="#cdd6f4">| run                 | function  | main.py:7   | 9    |</text>
+  <text x="16" y="268" fill="#cdd6f4">| AdminUser.__init__  | method    | models.py:14| 2    |</text>
+  <text x="16" y="284" fill="#cdd6f4">| AdminUser.save      | method    | models.py:18| 2    |</text>
+  <text x="16" y="300" fill="#cdd6f4">| Logger.log          | method    | services.py:2| 2    |</text>
+  <text x="16" y="316" fill="#cdd6f4">| get_logger          | function  | services.py:20| 2    |</text>
+  <text x="16" y="332" fill="#cdd6f4">| validate            | function  | services.py:15| 2    |</text>
+  <text x="16" y="348" fill="#cdd6f4">| validate            | function  | models.py:25 | 2    |</text>
+  <text x="16" y="364" fill="#cdd6f4">| AdminUser           | class     | models.py:13 | 1    |</text>
+  <text x="16" y="380" fill="#cdd6f4">| Logger              | class     | services.py:1| 1    |</text>
+  <text x="16" y="396" fill="#cdd6f4">| User                | class     | models.py:1  | 1    |</text>
+  <text x="16" y="412" fill="#cdd6f4">| User.__init__       | method    | models.py:2  | 1    |</text>
+
+  <text x="16" y="440" fill="#6c7086" font-style="italic">... 5 more rows (output shortened for readability)</text>
+
+  <text x="16" y="470" fill="#a6e3a1">$</text>
+</svg>

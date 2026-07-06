@@ -25,6 +25,7 @@ from codepulse.embeddings import index_embeddings, get_embedder, serialize_vecto
 def cli(ctx: click.Context, data_dir: str | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["project_root"] = Path.cwd()
+    ctx.obj["explicit_data_dir"] = data_dir is not None
     config = CodePulseConfig.load_for_project(path=str(Path.cwd()))
     if data_dir:
         config.data_dir = data_dir
@@ -42,7 +43,8 @@ def init(ctx: click.Context, path: str) -> None:
     if not target.is_absolute():
         target = project_root / path
     target = target.resolve()
-    config.data_dir = str(target / ".codepulse")
+    if not ctx.obj.get("explicit_data_dir"):
+        config.data_dir = str(target / ".codepulse")
     cp = CodePulse(config)
     cp.init_project()
     click.echo(f"Initialized in {config.config_dir}")
@@ -281,7 +283,11 @@ def analyze(ctx: click.Context, url: str, token: str | None) -> None:
 def mcp(ctx: click.Context) -> None:
     """Start MCP server over stdio for AI agent integration."""
     from codepulse.mcp_server import main as mcp_main
-    mcp_main(config=ctx.obj["config"])
+    try:
+        mcp_main(config=ctx.obj["config"])
+    except ImportError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()
@@ -289,7 +295,11 @@ def mcp(ctx: click.Context) -> None:
 def serve(ctx: click.Context) -> None:
     """Start MCP server over stdio for AI agent integration (alias for mcp)."""
     from codepulse.mcp_server import main as mcp_main
-    mcp_main(config=ctx.obj["config"])
+    try:
+        mcp_main(config=ctx.obj["config"])
+    except ImportError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()

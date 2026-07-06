@@ -3,6 +3,7 @@
 Supports multiple backends for generating vector embeddings.
 """
 
+import hashlib
 import json
 import struct
 from pathlib import Path
@@ -57,30 +58,67 @@ def index_embeddings(
     model: str | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> int:
-    embed_fn = get_embedder(backend, model)
+    # Resolve actual model name (not backend name)
+    if model is not None:
+        actual_model = model
+    elif backend == "openai":
+        actual_model = "text-embedding-3-small"
+    else:
+        actual_model = "all-MiniLM-L6-v2"
+
     count = 0
     batch_size = 32
+    embed_fn: Callable[[list[str]], list[list[float]]] | None = None
 
+    placeholders = ",".join("?" for _ in ("file", "external_module", "unresolved_symbol"))
     all_nodes = db.conn.execute(
-        "SELECT id, name, signature FROM nodes ORDER BY id"
+        f"""SELECT id, name, kind, signature, file_path, line_start, line_end
+            FROM nodes
+            WHERE kind NOT IN ({placeholders})
+            ORDER BY id""",
+        ("file", "external_module", "unresolved_symbol"),
     ).fetchall()
 
     for i in range(0, len(all_nodes), batch_size):
         batch = all_nodes[i:i + batch_size]
         texts: list[str] = []
         ids: list[str] = []
+        hashes: list[str] = []
 
         for row in batch:
             sig = row["signature"] or row["name"]
-            ids.append(row["id"])
-            texts.append(f"{row['name']}: {sig}")
+            node_id = row["id"]
+            text = f"{row['name']}: {sig}"
+            content_hash = hashlib.md5(
+                f"{node_id}:{row['name']}:{row['kind']}:{sig}:{row['file_path']}:{row['line_start']}:{row['line_end']}".encode()
+            ).hexdigest()
+
+            # Skip if we already have a matching embedding
+            existing = db.conn.execute(
+                "SELECT 1 FROM embeddings WHERE node_id = ? AND model = ? AND content_hash = ?",
+                (node_id, actual_model, content_hash),
+            ).fetchone()
+            if existing:
+                continue
+
+            ids.append(node_id)
+            texts.append(text)
+            hashes.append(content_hash)
+
+        if not ids:
+            continue
 
         if on_progress:
             on_progress(f"Embedding {i + len(batch)}/{len(all_nodes)}")
 
+        if embed_fn is None:
+            embed_fn = get_embedder(backend, model)
         vectors = embed_fn(texts)
-        for node_id, vec in zip(ids, vectors):
-            db.upsert_embedding(node_id, serialize_vector(vec), model=backend, dimensions=len(vec))
+        for node_id, vec, h in zip(ids, vectors, hashes):
+            db.upsert_embedding(
+                node_id, serialize_vector(vec),
+                model=actual_model, dimensions=len(vec), content_hash=h,
+            )
             count += 1
 
     return count

@@ -4,12 +4,17 @@ Detects web framework routing patterns and links URL patterns
 to their handler functions/classes.
 """
 
+import itertools
+import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from codepulse.parser import SourceParser
 from codepulse.db import GraphDB, Node, Edge
+
+logger = logging.getLogger(__name__)
 
 
 FRAMEWORK_PATTERNS: dict[str, list[dict[str, Any]]] = {
@@ -59,16 +64,19 @@ def detect_frameworks(project_root: str) -> list[str]:
     if list(root.rglob("package.json")):
         pkg = root / "package.json"
         try:
-            import json
             data = json.loads(pkg.read_text())
             deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
             if "express" in deps:
                 frameworks.append("express")
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning("Could not read package.json for Express detection: %s", pkg)
     if list(root.rglob("requirements.txt")) or list(root.rglob("pyproject.toml")):
         for f in root.rglob("requirements.txt"):
-            content = f.read_text()
+            try:
+                content = f.read_text()
+            except (OSError, UnicodeDecodeError):
+                logger.warning("Could not read requirements file for framework detection: %s", f)
+                continue
             if "django" in content:
                 frameworks.append("django")
             if "flask" in content:
@@ -114,11 +122,11 @@ def index_routes(project_root: str, db: GraphDB, parser: SourceParser) -> int:
                             )
                             db.upsert_node(node)
                             count += 1
-                except Exception:
-                    pass
+                except (OSError, UnicodeDecodeError):
+                    logger.warning("Could not read %s for django route detection", urls_file)
 
         elif framework == "express":
-            for js_file in root.rglob("*.js") + root.rglob("*.ts"):
+            for js_file in itertools.chain(root.rglob("*.js"), root.rglob("*.ts")):
                 try:
                     content = js_file.read_text()
                     for pat_def in patterns:
@@ -136,8 +144,8 @@ def index_routes(project_root: str, db: GraphDB, parser: SourceParser) -> int:
                             )
                             db.upsert_node(node)
                             count += 1
-                except Exception:
-                    pass
+                except (OSError, UnicodeDecodeError):
+                    logger.warning("Could not read %s for express route detection", js_file)
 
         else:
             for py_file in root.rglob("*.py"):
@@ -162,7 +170,7 @@ def index_routes(project_root: str, db: GraphDB, parser: SourceParser) -> int:
                             )
                             db.upsert_node(node)
                             count += 1
-                except Exception:
-                    pass
+                except (OSError, UnicodeDecodeError):
+                    logger.warning("Could not read %s for %s route detection", py_file, framework)
 
     return count

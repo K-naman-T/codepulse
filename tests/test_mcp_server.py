@@ -71,12 +71,12 @@ class TestMCPServerTools:
     async def test_context_tool_includes_callers_and_callees(self, server):
         result = await server.call_tool("context", {"task": "class", "max_nodes": 3})
         text = _extract(result)
+        if "No symbols" in text or not text.strip():
+            pytest.skip("no indexed symbols at default config; requires populated ~/.codepulse")
         if "Callers" in text or "Callees" in text:
-            pass
-        elif "No symbols" in text:
-            pass
+            assert "Callers" in text and "Callees" in text
         else:
-            pytest.skip("no matching symbols to check callers/callees")
+            pytest.skip("indexed symbols have no caller/callee relationships to verify")
 
     async def test_node_tool_reports_missing_node(self, server):
         result = await server.call_tool("node", {"node_id": "/nonexistent"})

@@ -162,6 +162,27 @@ class TestSearch:
         results = db.search_nodes("anything")
         assert results == []
 
+    def test_fts_search_with_special_chars_does_not_crash(self, db: GraphDB):
+        node = Node(id="mod.py:foo", file_path="mod.py", name="foo", kind="function")
+        db.upsert_node(node)
+        queries = [
+            'foo -',       # dangling NOT operator
+            'foo (',       # unmatched paren
+            'foo *',       # dangling wildcard
+        ]
+        for q in queries:
+            results = db.search_nodes(q)
+            assert any(r.name == "foo" for r in results), (
+                f"query {q!r} should return node 'foo'"
+            )
+
+    def test_fts_search_negation_operator_does_not_change_semantics(self, db: GraphDB):
+        node = Node(id="mod.py:foo", file_path="mod.py", name="foo", kind="function")
+        db.upsert_node(node)
+        results = db.search_nodes("foo -bar")
+        assert len(results) == 1
+        assert results[0].name == "foo"
+
 
 class TestGraphQueries:
     def test_get_callers_depth_1(self, db: GraphDB):
