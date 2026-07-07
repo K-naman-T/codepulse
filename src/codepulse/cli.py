@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -104,8 +105,9 @@ def index(ctx: click.Context, path: str, watch: bool, use_scip: bool, no_cache: 
 @click.argument("query")
 @click.option("--kind", "-k", default=None, help="Filter by kind: function, class, method")
 @click.option("--limit", "-l", default=20, help="Max results")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def search(ctx: click.Context, query: str, kind: str | None, limit: int) -> None:
+def search(ctx: click.Context, query: str, kind: str | None, limit: int, json_flag: bool) -> None:
     """Search indexed symbols."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -113,6 +115,10 @@ def search(ctx: click.Context, query: str, kind: str | None, limit: int) -> None
 
     if not results:
         click.echo("No results found.")
+        return
+
+    if json_flag:
+        click.echo(json.dumps({"command": "search", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in results], "count": len(results)}, indent=2))
         return
 
     for node in results:
@@ -129,8 +135,9 @@ def search(ctx: click.Context, query: str, kind: str | None, limit: int) -> None
 @cli.command()
 @click.argument("node_id")
 @click.option("--depth", "-d", default=1, help="Traversal depth")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def callers(ctx: click.Context, node_id: str, depth: int) -> None:
+def callers(ctx: click.Context, node_id: str, depth: int, json_flag: bool) -> None:
     """Show nodes that call a given symbol."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -138,6 +145,10 @@ def callers(ctx: click.Context, node_id: str, depth: int) -> None:
 
     if not results:
         click.echo("No callers found.")
+        return
+
+    if json_flag:
+        click.echo(json.dumps({"command": "callers", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start, "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
         return
 
     for node, edge_kind in results:
@@ -149,8 +160,9 @@ def callers(ctx: click.Context, node_id: str, depth: int) -> None:
 @cli.command()
 @click.argument("node_id")
 @click.option("--depth", "-d", default=1, help="Traversal depth")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def callees(ctx: click.Context, node_id: str, depth: int) -> None:
+def callees(ctx: click.Context, node_id: str, depth: int, json_flag: bool) -> None:
     """Show symbols called by a given node."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -158,6 +170,10 @@ def callees(ctx: click.Context, node_id: str, depth: int) -> None:
 
     if not results:
         click.echo("No callees found.")
+        return
+
+    if json_flag:
+        click.echo(json.dumps({"command": "callees", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start, "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
         return
 
     for node, edge_kind in results:
@@ -170,8 +186,9 @@ def callees(ctx: click.Context, node_id: str, depth: int) -> None:
 @click.argument("source")
 @click.argument("target")
 @click.option("--depth", "-d", default=10, help="Max traversal depth")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def trace(ctx: click.Context, source: str, target: str, depth: int) -> None:
+def trace(ctx: click.Context, source: str, target: str, depth: int, json_flag: bool) -> None:
     """Trace the call path between two symbols."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -179,6 +196,10 @@ def trace(ctx: click.Context, source: str, target: str, depth: int) -> None:
 
     if not path:
         click.echo("No path found between these symbols.")
+        return
+
+    if json_flag:
+        click.echo(json.dumps({"command": "trace", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in path], "count": len(path), "hops": len(path) - 1}, indent=2))
         return
 
     click.echo(f"Path ({len(path) - 1} hops):")
@@ -191,8 +212,10 @@ def trace(ctx: click.Context, source: str, target: str, depth: int) -> None:
 @cli.command()
 @click.argument("node_id")
 @click.option("--depth", "-d", default=3, help="Impact depth")
+@click.option("--include-unresolved", "-u", is_flag=True, help="Include unresolved and external symbols in impact")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def impact(ctx: click.Context, node_id: str, depth: int) -> None:
+def impact(ctx: click.Context, node_id: str, depth: int, include_unresolved: bool, json_flag: bool) -> None:
     """Show impact radius of a symbol (what would be affected by changing it)."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -202,7 +225,19 @@ def impact(ctx: click.Context, node_id: str, depth: int) -> None:
         click.echo("No impact found.")
         return
 
+    noise_kinds = {"unresolved_symbol", "external_module", "file"}
+    filtered = {}
     for level, nodes in sorted(result.items()):
+        if not include_unresolved:
+            nodes = [n for n in nodes if n.kind not in noise_kinds]
+        if nodes:
+            filtered[level] = nodes
+
+    if json_flag:
+        click.echo(json.dumps({"command": "impact", "results": {str(l): [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in nodes] for l, nodes in filtered.items()}}, indent=2))
+        return
+
+    for level, nodes in filtered.items():
         click.echo(f"Depth {level}:")
         for node in nodes:
             click.echo(f"  {node.name} ({node.kind})")
@@ -222,7 +257,11 @@ def embed(ctx: click.Context, backend: str, model: str | None) -> None:
     def on_progress(msg: str) -> None:
         click.echo(msg)
 
-    count = index_embeddings(cp.db, backend=backend, model=model, on_progress=on_progress)
+    try:
+        count = index_embeddings(cp.db, backend=backend, model=model, on_progress=on_progress)
+    except (ImportError, RuntimeError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     click.echo(f"Embedded {count} symbols.")
 
 
@@ -288,9 +327,13 @@ def similar(ctx: click.Context, query: str, limit: int, backend: str, model: str
     """Find semantically similar symbols."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
-    embed_fn = get_embedder(backend, model)
-    vec = embed_fn([query])[0]
-    results = cp.db.search_similar(vec, limit=limit)
+    try:
+        embed_fn = get_embedder(backend, model)
+        vec = embed_fn([query])[0]
+        results = cp.db.search_similar(vec, limit=limit)
+    except (ImportError, RuntimeError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     if not results:
         click.echo("No similar symbols found. Run `codepulse embed` first.")
@@ -504,8 +547,9 @@ def context(ctx: click.Context, task: str, max_nodes: int) -> None:
 
 @cli.command()
 @click.option("--limit", "-l", default=25, help="Max files/symbols")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def repo_map(ctx: click.Context, limit: int) -> None:
+def repo_map(ctx: click.Context, limit: int, json_flag: bool) -> None:
     """Show a map of the codebase — top files and symbols."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -513,6 +557,10 @@ def repo_map(ctx: click.Context, limit: int) -> None:
 
     files = db.get_file_summary(limit=limit)
     symbols = db.get_top_symbols_with_context(limit=limit)
+
+    if json_flag:
+        click.echo(json.dumps({"command": "repo-map", "files": [{"file": f["file"], "symbols": f["symbols"], "edges": f["edges"], "kinds": f["kinds"]} for f in files], "symbols": [{"name": s["name"], "kind": s["kind"], "file": s["file"], "line": s["line"], "refs": s["refs"]} for s in symbols]}, indent=2))
+        return
 
     lines = ["## Codebase Overview", ""]
 
@@ -537,8 +585,9 @@ def repo_map(ctx: click.Context, limit: int) -> None:
 @cli.command()
 @click.argument("node_id")
 @click.option("--source/--no-source", default=True, help="Include source code")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def node(ctx: click.Context, node_id: str, source: bool) -> None:
+def node(ctx: click.Context, node_id: str, source: bool, json_flag: bool) -> None:
     """Get a single symbol's details."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
@@ -549,6 +598,15 @@ def node(ctx: click.Context, node_id: str, source: bool) -> None:
         return
 
     n = detail.node
+    if json_flag:
+        data = {"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start}
+        if n.signature:
+            data["signature"] = n.signature[:120]
+        if detail.source:
+            data["source"] = detail.source
+        click.echo(json.dumps({"command": "node", "result": data}, indent=2))
+        return
+
     click.echo(f"  {n.name} ({n.kind})")
     click.echo(f"  ID: {n.id}")
     click.echo(f"  {n.file_path}:{n.line_start}")
@@ -561,18 +619,37 @@ def node(ctx: click.Context, node_id: str, source: bool) -> None:
 
 @cli.command()
 @click.argument("file_path")
+@click.option("--json", "json_flag", is_flag=True, help="Output as JSON")
 @click.pass_context
-def file(ctx: click.Context, file_path: str) -> None:
+def file(ctx: click.Context, file_path: str, json_flag: bool) -> None:
     """View all symbols in a specific file."""
     config = ctx.obj["config"]
     cp = CodePulse(config)
-    nodes = cp.db.get_nodes_by_file(file_path)
+    db = cp.db
+
+    resolved = file_path
+    nodes = db.get_nodes_by_file(resolved)
+    if not nodes and "project_root" in ctx.obj:
+        project_root = ctx.obj["project_root"]
+        resolved = str(Path(project_root) / file_path)
+        nodes = db.get_nodes_by_file(resolved)
+    if not nodes:
+        all_files = db.conn.execute("SELECT DISTINCT file_path FROM nodes").fetchall()
+        for row in all_files:
+            if row["file_path"].endswith(file_path):
+                resolved = row["file_path"]
+                nodes = db.get_nodes_by_file(resolved)
+                break
 
     if not nodes:
         click.echo(f"No symbols found in '{file_path}'.")
         return
 
-    fname = Path(file_path).name
+    if json_flag:
+        click.echo(json.dumps({"command": "file", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in nodes], "count": len(nodes)}, indent=2))
+        return
+
+    fname = Path(resolved).name
     click.echo(f"## Symbols in `{fname}`")
     click.echo("")
     click.echo("| Symbol | Kind | Line |")

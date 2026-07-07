@@ -259,7 +259,6 @@ class CodePulse:
             "INSERT OR REPLACE INTO files (path, language, content_hash, error) VALUES (?, ?, ?, ?)",
             (file_path, lang, "", str(error)),
         )
-        self.db.conn.commit()
 
     def _add_cached_counts(self, result: IndexResult, file_path: str) -> None:
         row = self.db.conn.execute(
