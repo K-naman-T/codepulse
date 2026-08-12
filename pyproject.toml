@@ -33,6 +33,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "tree-sitter>=0.24",
+    "tree-sitter-python>=0.23",
     "sqlite-utils>=3.0",
     "watchdog>=6.0",
     "mcp>=1.0",
@@ -61,9 +62,9 @@ jedi = ["jedi>=0.19"]
 scip = ["protobuf>=5.0"]
 
 [project.urls]
-Homepage = "https://github.com/codepulse/codepulse"
-Repository = "https://github.com/codepulse/codepulse"
-Issues = "https://github.com/codepulse/codepulse/issues"
+Homepage = "https://github.com/K-naman-T/codepulse"
+Repository = "https://github.com/K-naman-T/codepulse"
+Issues = "https://github.com/K-naman-T/codepulse/issues"
 
 [project.scripts]
 codepulse = "codepulse.cli:cli"

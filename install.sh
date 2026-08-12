@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="codepulse/codepulse"
+REPO="K-naman-T/codepulse"
 BIN="${CODEPULSE_BIN:-codepulse}"
 
 echo "==> Installing CodePulse..."
