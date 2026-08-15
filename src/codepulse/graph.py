@@ -33,8 +33,11 @@ class NodeDetail:
 
 
 def _file_content_hash(file_path: str) -> str:
+    digest = hashlib.blake2b()
     with open(file_path, "rb") as f:
-        return hashlib.file_digest(f, "blake2b").hexdigest()
+        for chunk in iter(lambda: f.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _escape_like(s: str) -> str:
