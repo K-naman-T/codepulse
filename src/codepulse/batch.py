@@ -11,7 +11,7 @@ from codepulse.config import CodePulseConfig
 from codepulse.graph import CodePulse
 
 REQUIRED_FIELDS = [
-    "name", "url", "commit", "language", "path",
+    "name", "url", "commit", "path",
     "use_scip", "max_seconds", "min_symbols", "max_internal_orphans",
 ]
 
@@ -19,7 +19,6 @@ FIELD_TYPES = {
     "name": str,
     "url": str,
     "commit": str,
-    "language": str,
     "path": str,
     "use_scip": bool,
     "max_seconds": (int, float),
@@ -204,7 +203,7 @@ class BatchValidator:
         commit = entry["commit"]
 
         if url.startswith("file://"):
-            url = url[len("file://"):]
+            url = url.removeprefix("file://")
 
         repo_path = Path(url)
 
@@ -227,18 +226,15 @@ class BatchValidator:
                 ["clone", str(repo_path), str(dest)],
                 f"clone local repository {repo_path}",
             )
-            self._checkout_commit(dest, commit)
+            self._run_git(["checkout", commit], f"checkout commit {commit}", cwd=dest)
             return str(dest)
 
         clone_dir = self._make_temp_dir("codepulse-batch-clone-", temp_paths)
         dest = clone_dir / entry["name"]
         self._run_git(["clone", url, str(dest)], f"clone repository {url}")
         if commit and commit != "local":
-            self._checkout_commit(dest, commit)
+            self._run_git(["checkout", commit], f"checkout commit {commit}", cwd=dest)
         return str(dest)
-
-    def _checkout_commit(self, repo_path: Path, commit: str) -> None:
-        self._run_git(["checkout", commit], f"checkout commit {commit}", cwd=repo_path)
 
     def _run_git(self, args: list[str], context: str, cwd: Path | None = None) -> None:
         try:

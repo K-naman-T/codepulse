@@ -1,7 +1,4 @@
-"""Embedding generation for code symbols.
-
-Supports multiple backends for generating vector embeddings.
-"""
+"""Embedding generation for code symbols."""
 
 import hashlib
 import json
@@ -10,21 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from codepulse.db import GraphDB
-
-
-def _get_openai_embedder(model: str = "text-embedding-3-small") -> Callable:
-    import os
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
-
-    def embed(texts: list[str]) -> list[list[float]]:
-        resp = client.embeddings.create(input=texts, model=model)
-        return [d.embedding for d in resp.data]
-
-    return embed
 
 
 def _get_local_embedder(model: str = "all-MiniLM-L6-v2") -> Callable:
@@ -43,8 +25,6 @@ def _get_local_embedder(model: str = "all-MiniLM-L6-v2") -> Callable:
 
 
 def get_embedder(backend: str = "local", model: str | None = None) -> Callable:
-    if backend == "openai":
-        return _get_openai_embedder(model or "text-embedding-3-small")
     return _get_local_embedder(model or "all-MiniLM-L6-v2")
 
 
@@ -58,13 +38,8 @@ def index_embeddings(
     model: str | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> int:
-    # Resolve actual model name (not backend name)
-    if model is not None:
-        actual_model = model
-    elif backend == "openai":
-        actual_model = "text-embedding-3-small"
-    else:
-        actual_model = "all-MiniLM-L6-v2"
+    # Resolve actual model name
+    actual_model = model or "all-MiniLM-L6-v2"
 
     count = 0
     batch_size = 32

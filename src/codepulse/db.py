@@ -1,7 +1,7 @@
 import json
 import math
 import sqlite3
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 _SYNTHETIC_KINDS = ("file", "external_module", "unresolved_symbol")
@@ -645,12 +645,6 @@ class GraphDB:
         )
         self.conn.commit()
 
-    def get_embedding(self, node_id: str) -> bytes | None:
-        row = self.conn.execute(
-            "SELECT vector FROM embeddings WHERE node_id = ?", (node_id,)
-        ).fetchone()
-        return row["vector"] if row else None
-
     def search_similar(
         self, query_vector: list[float], limit: int = 10
     ) -> list[tuple[Node, float]]:
@@ -693,24 +687,7 @@ class GraphDB:
         ).fetchall()
         return [{"name": r["name"], "kind": r["kind"], "file": r["file_path"],
                  "line": r["line_start"], "sig": (r["signature"] or "")[:120], "refs": r["refs"]}
-                for r in rows]
-
-    def get_symbols_with_callers(self, query: str, limit: int = 10) -> list[dict[str, object]]:
-        """Find symbols matching query, return each with its immediate callers."""
-        matches = self.search_nodes(query, limit=limit)
-        results: list[dict[str, object]] = []
-        for node in matches:
-            entry: dict[str, object] = {
-                "name": node.name, "kind": node.kind,
-                "file": node.file_path, "line": node.line_start,
-                "sig": node.signature[:120] if node.signature else ""
-            }
-            callers = self.get_callers(node.id, depth=1)
-            callees = self.get_callees(node.id, depth=1)
-            entry["called_by"] = [f"{n.name} ({ek})" for n, ek in callers[:5]]
-            entry["calls"] = [f"{n.name} ({ek})" for n, ek in callees[:5]]
-            results.append(entry)
-        return results
+                 for r in rows]
 
 
     def add_symbol_note(self, symbol_id: str, note: str, source: str = "human") -> SymbolNote:

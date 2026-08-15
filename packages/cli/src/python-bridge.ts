@@ -82,23 +82,15 @@ export class PythonBridge {
     options: SpawnOptions
   ): Promise<SpawnResult> {
     return new Promise((resolve) => {
-      const timeout = options.timeout ?? 300_000;
       const child = spawn(command, args, {
         env: { ...process.env, ...options.env },
         stdio: options.stdio === "inherit" ? "inherit" : ["pipe", "pipe", "pipe"],
+        timeout: options.timeout ?? 300_000,
+        killSignal: "SIGKILL",
       });
 
       let stdout = "";
       let stderr = "";
-      let timedOut = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        setTimeout(() => {
-          try { child.kill("SIGKILL"); } catch { /* ignore */ }
-        }, 5000);
-      }, timeout);
 
       child.stdout?.on("data", (data: Buffer) => {
         stdout += data.toString();
@@ -108,15 +100,13 @@ export class PythonBridge {
         stderr += data.toString();
       });
 
-      child.on("close", (exitCode) => {
-        clearTimeout(timer);
-        resolve({ exitCode, stdout, stderr, timedOut });
+      child.on("close", (exitCode, signal) => {
+        resolve({ exitCode, stdout, stderr, timedOut: signal !== null });
       });
 
       child.on("error", (err) => {
-        clearTimeout(timer);
         stderr += err.message;
-        resolve({ exitCode: null, stdout, stderr, timedOut });
+        resolve({ exitCode: null, stdout, stderr, timedOut: false });
       });
     });
   }

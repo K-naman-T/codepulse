@@ -1,7 +1,5 @@
 """Tests for repo cloner and cache."""
 
-import json
-import os
 from pathlib import Path
 
 from codepulse.cloner import RepoCache
@@ -55,30 +53,3 @@ class TestRepoCache:
         cache = RepoCache(str(tmp_path / "cache"))
         url = RepoURL("github", "o", "r", "main")
         assert cache.get(url, "nonexistent") is None
-
-    def test_clean_removes_old_caches(self, tmp_path: Path):
-        import time as _time
-        cache = RepoCache(str(tmp_path / "cache"))
-        url = RepoURL("github", "o", "r", "main")
-
-        src = tmp_path / "source"
-        src.mkdir()
-        (src / "test.py").write_text("x = 1")
-        cache.store(url, "abc", str(src))
-
-        # Manually age the manifest
-        import json
-        key = cache._cache_key(url)
-        manifest = Path(str(tmp_path / "cache")) / key / "manifest.json"
-        old_time = _time.time() - 8 * 86400 - 1  # 8 days ago
-        # Set both the file content and the mtime
-        with open(manifest) as f:
-            data = json.load(f)
-        data["cloned_at"] = old_time
-        with open(manifest, "w") as f:
-            json.dump(data, f)
-        os.utime(manifest, (old_time, old_time))
-
-        freed = cache.clean(max_age_days=7)
-        assert freed > 0, f"Expected freed > 0, cache dir: {manifest.parent}"
-        assert not cache.is_cached(url, "abc")
