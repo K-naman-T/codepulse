@@ -65,7 +65,7 @@ export class PythonBridge {
     options: SpawnOptions = {}
   ): Promise<SpawnResult> {
     const result = await this.rawSpawn(command, args, options);
-    if (result.exitCode !== null) return result;
+    if (result.exitCode !== null || result.timedOut) return result;
     const fallbackResult = await this.rawSpawn(this.pythonPath, [...this.fallbackArgs, ...args], options);
     if (fallbackResult.exitCode !== null) return fallbackResult;
     return {
