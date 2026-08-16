@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import tempfile
-import threading
 import time
 import zipfile
 from pathlib import Path
@@ -18,18 +17,6 @@ from typing import Callable
 import requests
 
 from codepulse.repo_utils import RepoURL, parse_git_url
-
-
-_CLONE_LOCKS: dict[str, threading.Lock] = {}
-_CLONE_LOCK_LOCK = threading.Lock()
-
-
-def _get_lock(key: str) -> threading.Lock:
-    """Get or create a per-repo lock to prevent concurrent clones."""
-    with _CLONE_LOCK_LOCK:
-        if key not in _CLONE_LOCKS:
-            _CLONE_LOCKS[key] = threading.Lock()
-        return _CLONE_LOCKS[key]
 
 
 class RepoCache:
@@ -120,21 +107,6 @@ class RepoCache:
             }, f)
         return dest / "repo"
 
-    def clean(self, max_age_days: int = 7) -> int:
-        """Remove old caches. Returns bytes freed."""
-        freed = 0
-        now = time.time()
-        for d in self.cache_dir.iterdir():
-            if d.is_dir():
-                m = d / "manifest.json"
-                if m.exists():
-                    age = now - m.stat().st_mtime
-                    if age > max_age_days * 86400:
-                        size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
-                        shutil.rmtree(d)
-                        freed += size
-        return freed
-
 
 def clone_repo(
     url: str,
@@ -146,7 +118,6 @@ def clone_repo(
     """Clone a git repo by URL and return the local path.
 
     Uses tarball download (no git binary needed), caches by commit hash.
-    Thread-safe: concurrent clones of the same repo are serialized.
 
     Raises ValueError if the repo is too large or URL can't be parsed.
     Returns path to the extracted repo directory.
@@ -163,61 +134,57 @@ def clone_repo(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    lock_key = f"{parsed.full_name}:{parsed.branch}"
-    lock = _get_lock(lock_key)
+    commit, actual_branch = cache.get_head_commit(parsed, token)
+    parsed.branch = actual_branch
 
-    with lock:
-        commit, actual_branch = cache.get_head_commit(parsed, token)
-        parsed.branch = actual_branch
+    cached = cache.get(parsed, commit)
+    if cached and cached.exists():
+        if on_progress:
+            on_progress(f"Using cached analysis (commit {commit[:8]})")
+        return str(cached)
 
-        cached = cache.get(parsed, commit)
-        if cached and cached.exists():
-            if on_progress:
-                on_progress(f"Using cached analysis (commit {commit[:8]})")
-            return str(cached)
+    if on_progress:
+        on_progress(f"Downloading {parsed.full_name}...")
+
+    dl_url = parsed.archive_url
+    if not dl_url:
+        raise ValueError(f"Unsupported platform for archive download: {parsed.platform}")
+
+    r = requests.get(dl_url, headers=headers, timeout=120, stream=True)
+    if r.status_code == 404:
+        raise ValueError(f"Repository not found: {parsed.full_name}")
+    if r.status_code == 403:
+        raise PermissionError(f"Access denied to {parsed.full_name}. Use --token for private repos.")
+    r.raise_for_status()
+
+    content_length = r.headers.get("Content-Length")
+    if content_length and int(content_length) > max_size_mb * 1024 * 1024:
+        raise ValueError(f"Repository too large ({int(content_length)//1024//1024}MB). Max: {max_size_mb}MB")
+
+    tmp = tempfile.mkdtemp(prefix="codepulse-")
+    try:
+        data = r.content
+        z = zipfile.ZipFile(io.BytesIO(data))
+        root_dir = z.namelist()[0].split("/")[0]
+        z.extractall(tmp)
+
+        repo_path = Path(tmp) / root_dir
+        if not repo_path.exists():
+            repo_path = Path(tmp)
 
         if on_progress:
-            on_progress(f"Downloading {parsed.full_name}...")
+            file_count = len(list(repo_path.rglob("*")))
+            on_progress(f"Extracted {file_count} files")
 
-        dl_url = parsed.archive_url
-        if not dl_url:
-            raise ValueError(f"Unsupported platform for archive download: {parsed.platform}")
+        final_path = cache.store(parsed, commit, str(repo_path))
+        if on_progress:
+            on_progress(f"Cached at {final_path}")
 
-        r = requests.get(dl_url, headers=headers, timeout=120, stream=True)
-        if r.status_code == 404:
-            raise ValueError(f"Repository not found: {parsed.full_name}")
-        if r.status_code == 403:
-            raise PermissionError(f"Access denied to {parsed.full_name}. Use --token for private repos.")
-        r.raise_for_status()
+        return str(final_path)
 
-        content_length = r.headers.get("Content-Length")
-        if content_length and int(content_length) > max_size_mb * 1024 * 1024:
-            raise ValueError(f"Repository too large ({int(content_length)//1024//1024}MB). Max: {max_size_mb}MB")
-
-        tmp = tempfile.mkdtemp(prefix="codepulse-")
-        try:
-            data = r.content
-            z = zipfile.ZipFile(io.BytesIO(data))
-            root_dir = z.namelist()[0].split("/")[0]
-            z.extractall(tmp)
-
-            repo_path = Path(tmp) / root_dir
-            if not repo_path.exists():
-                repo_path = Path(tmp)
-
-            if on_progress:
-                file_count = len(list(repo_path.rglob("*")))
-                on_progress(f"Extracted {file_count} files")
-
-            final_path = cache.store(parsed, commit, str(repo_path))
-            if on_progress:
-                on_progress(f"Cached at {final_path}")
-
-            return str(final_path)
-
-        except Exception:
-            shutil.rmtree(tmp, ignore_errors=True)
-            raise
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
 
 
 

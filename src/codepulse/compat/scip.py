@@ -13,6 +13,7 @@ Requires:
 
 import json
 import os
+import shutil
 import subprocess
 import warnings
 from pathlib import Path
@@ -81,11 +82,7 @@ def _which(name: str) -> str | None:
         c = d / name
         if c.exists():
             return str(c)
-    try:
-        r = subprocess.run(["which", name], capture_output=True, text=True, timeout=5)
-        return r.stdout.strip() if r.returncode == 0 else None
-    except Exception:
-        return None
+    return shutil.which(name)
 
 
 def index_with_scip(project_root: str, db: GraphDB) -> int:
@@ -273,8 +270,6 @@ def _convert_scip_to_graph(scip_path: str, db: GraphDB, project_root: str) -> in
             if def_nid == target_id:
                 continue
             if def_ls <= ls and le <= def_le:
-                if def_ls == 0 and def_le == 0:
-                    continue
                 size = def_le - def_ls
                 if size < min_size:
                     min_size = size

@@ -33,11 +33,11 @@ class NodeDetail:
 
 
 def _file_content_hash(file_path: str) -> str:
-    h = hashlib.blake2b()
+    digest = hashlib.blake2b()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _escape_like(s: str) -> str:
@@ -174,18 +174,7 @@ class CodePulse:
                 if on_progress:
                     on_progress(f"Indexing {fp}")
                 symbols, refs = self.parser.parse_file(fp)
-                self.db.delete_file_nodes(fp)
-                batch_nodes.extend(symbols)
-                batch_edges.extend(refs)
-                result.files_indexed += 1
-                result.symbols_found += len(symbols)
-                result.edges_found += len(refs)
-                self._update_file_cache(fp)
-
-                if len(batch_nodes) > 500:
-                    self.db.bulk_import(batch_nodes, batch_edges)
-                    batch_nodes.clear()
-                    batch_edges.clear()
+                self._ingest_indexed_file(fp, symbols, refs, result, batch_nodes, batch_edges)
             except Exception as e:
                 result.errors.append(f"{fp}: {e}")
                 result.files_indexed += 1
@@ -230,20 +219,31 @@ class CodePulse:
                             result.files_indexed += 1
                             self._record_file_error(fp, error)
                             continue
-                        self.db.delete_file_nodes(fp)
-                        batch_nodes.extend(symbols)
-                        batch_edges.extend(edges)
-                        result.files_indexed += 1
-                        result.symbols_found += len(symbols)
-                        result.edges_found += len(edges)
-                        self._update_file_cache(fp)
-
-                        if len(batch_nodes) > 500:
-                            self.db.bulk_import(batch_nodes, batch_edges)
-                            batch_nodes.clear()
-                            batch_edges.clear()
+                        self._ingest_indexed_file(fp, symbols, edges, result, batch_nodes, batch_edges)
                 except Exception as e:
                     result.errors.append(f"Worker error: {e}")
+
+    def _ingest_indexed_file(
+        self,
+        file_path: str,
+        symbols: list[Node],
+        refs: list[Edge],
+        result: IndexResult,
+        batch_nodes: list[Node],
+        batch_edges: list[Edge],
+    ) -> None:
+        self.db.delete_file_nodes(file_path)
+        batch_nodes.extend(symbols)
+        batch_edges.extend(refs)
+        result.files_indexed += 1
+        result.symbols_found += len(symbols)
+        result.edges_found += len(refs)
+        self._update_file_cache(file_path)
+
+        if len(batch_nodes) > 500:
+            self.db.bulk_import(batch_nodes, batch_edges)
+            batch_nodes.clear()
+            batch_edges.clear()
 
     def _update_file_cache(self, file_path: str) -> None:
         try:
@@ -353,13 +353,6 @@ class CodePulse:
         lines.append("")
 
         ranked = self.db.get_node_rankings(limit=max_nodes)
-        if not ranked:
-            ranked_with_kind = []
-            for lang in self.config.languages:
-                nodes = self.db.search_nodes("", kind="class", limit=max_nodes // 2)
-                for n in nodes:
-                    ranked_with_kind.append((n, 0))
-            ranked = ranked_with_kind
 
         for node, score in ranked:
             lines.append(f"## {node.kind.title()}: {node.name}")

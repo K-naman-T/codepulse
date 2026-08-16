@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import click
 
@@ -8,7 +9,6 @@ from codepulse import __version__
 from codepulse.config import CodePulseConfig
 from codepulse.graph import CodePulse
 from codepulse.watcher import FileWatcher
-from codepulse.embeddings import index_embeddings, get_embedder, serialize_vector
 
 
 @click.group(
@@ -118,7 +118,7 @@ def search(ctx: click.Context, query: str, kind: str | None, limit: int, json_fl
         return
 
     if json_flag:
-        click.echo(json.dumps({"command": "search", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in results], "count": len(results)}, indent=2))
+        click.echo(json.dumps({"command": "search", "results": [_node_json(n) for n in results], "count": len(results)}, indent=2))
         return
 
     for node in results:
@@ -148,7 +148,7 @@ def callers(ctx: click.Context, node_id: str, depth: int, json_flag: bool) -> No
         return
 
     if json_flag:
-        click.echo(json.dumps({"command": "callers", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start, "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
+        click.echo(json.dumps({"command": "callers", "results": [{**_node_json(n), "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
         return
 
     for node, edge_kind in results:
@@ -173,7 +173,7 @@ def callees(ctx: click.Context, node_id: str, depth: int, json_flag: bool) -> No
         return
 
     if json_flag:
-        click.echo(json.dumps({"command": "callees", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start, "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
+        click.echo(json.dumps({"command": "callees", "results": [{**_node_json(n), "edge_kind": ek} for n, ek in results], "count": len(results)}, indent=2))
         return
 
     for node, edge_kind in results:
@@ -199,7 +199,7 @@ def trace(ctx: click.Context, source: str, target: str, depth: int, json_flag: b
         return
 
     if json_flag:
-        click.echo(json.dumps({"command": "trace", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in path], "count": len(path), "hops": len(path) - 1}, indent=2))
+        click.echo(json.dumps({"command": "trace", "results": [_node_json(n) for n in path], "count": len(path), "hops": len(path) - 1}, indent=2))
         return
 
     click.echo(f"Path ({len(path) - 1} hops):")
@@ -234,7 +234,7 @@ def impact(ctx: click.Context, node_id: str, depth: int, include_unresolved: boo
             filtered[level] = nodes
 
     if json_flag:
-        click.echo(json.dumps({"command": "impact", "results": {str(l): [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in nodes] for l, nodes in filtered.items()}}, indent=2))
+        click.echo(json.dumps({"command": "impact", "results": {str(l): [_node_json(n) for n in nodes] for l, nodes in filtered.items()}}, indent=2))
         return
 
     for level, nodes in filtered.items():
@@ -243,26 +243,6 @@ def impact(ctx: click.Context, node_id: str, depth: int, include_unresolved: boo
             click.echo(f"  {node.name} ({node.kind})")
             click.echo(f"  {node.file_path}:{node.line_start}")
             click.echo()
-
-
-@cli.command()
-@click.option("--backend", default="local", help="Embedding backend: local or openai")
-@click.option("--model", default=None, help="Model name")
-@click.pass_context
-def embed(ctx: click.Context, backend: str, model: str | None) -> None:
-    """Generate embeddings for all indexed symbols."""
-    config = ctx.obj["config"]
-    cp = CodePulse(config)
-
-    def on_progress(msg: str) -> None:
-        click.echo(msg)
-
-    try:
-        count = index_embeddings(cp.db, backend=backend, model=model, on_progress=on_progress)
-    except (ImportError, RuntimeError) as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    click.echo(f"Embedded {count} symbols.")
 
 
 @cli.group()
@@ -318,36 +298,6 @@ def note_search(ctx: click.Context, query: str, limit: int) -> None:
 
 
 @cli.command()
-@click.argument("query")
-@click.option("--limit", "-l", default=10, help="Max results")
-@click.option("--backend", default="local", help="Embedding backend")
-@click.option("--model", default=None, help="Model name")
-@click.pass_context
-def similar(ctx: click.Context, query: str, limit: int, backend: str, model: str | None) -> None:
-    """Find semantically similar symbols."""
-    config = ctx.obj["config"]
-    cp = CodePulse(config)
-    try:
-        embed_fn = get_embedder(backend, model)
-        vec = embed_fn([query])[0]
-        results = cp.db.search_similar(vec, limit=limit)
-    except (ImportError, RuntimeError) as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-    if not results:
-        click.echo("No similar symbols found. Run `codepulse embed` first.")
-        return
-
-    for node, score in results:
-        click.echo(f"  {node.name} ({node.kind})  similarity: {score:.3f}")
-        click.echo(f"  {node.file_path}:{node.line_start}")
-        if node.signature:
-            click.echo(f"  {node.signature[:120]}")
-        click.echo()
-
-
-@cli.command()
 @click.argument("url")
 @click.option("--token", envvar="GITHUB_TOKEN", help="GitHub token for private repos")
 @click.option("--branch", default=None, help="Branch to analyze (default: main)")
@@ -359,7 +309,7 @@ def analyze(ctx: click.Context, url: str, token: str | None, branch: str | None,
 
     Supports GitHub, GitLab, Bitbucket URLs.
     """
-    from codepulse.cloner import clone_repo, RepoCache
+    from codepulse.cloner import clone_repo
     from codepulse.graph import CodePulse
 
     config = ctx.obj["config"]
@@ -471,12 +421,7 @@ def mcp(ctx: click.Context) -> None:
 @click.pass_context
 def serve(ctx: click.Context) -> None:
     """Start MCP server over stdio for AI agent integration (alias for mcp)."""
-    from codepulse.mcp_server import main as mcp_main
-    try:
-        mcp_main(config=ctx.obj["config"])
-    except ImportError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
+    ctx.invoke(mcp)
 
 
 @cli.command()
@@ -599,7 +544,7 @@ def node(ctx: click.Context, node_id: str, source: bool, json_flag: bool) -> Non
 
     n = detail.node
     if json_flag:
-        data = {"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start}
+        data = _node_json(n)
         if n.signature:
             data["signature"] = n.signature[:120]
         if detail.source:
@@ -646,7 +591,7 @@ def file(ctx: click.Context, file_path: str, json_flag: bool) -> None:
         return
 
     if json_flag:
-        click.echo(json.dumps({"command": "file", "results": [{"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start} for n in nodes], "count": len(nodes)}, indent=2))
+        click.echo(json.dumps({"command": "file", "results": [_node_json(n) for n in nodes], "count": len(nodes)}, indent=2))
         return
 
     fname = Path(resolved).name
@@ -667,44 +612,11 @@ def file(ctx: click.Context, file_path: str, json_flag: bool) -> None:
 @click.pass_context
 def scan(ctx: click.Context, path: str, watch: bool, use_scip: bool) -> None:
     """Index all code files (alias for index)."""
-    config = ctx.obj["config"]
-    project_root = ctx.obj["project_root"]
-    path_obj = Path(path)
-    if not path_obj.is_absolute():
-        path_obj = project_root / path
-    resolved_path = str(path_obj.resolve())
-    if use_scip:
-        config.use_scip = True
-    cp = CodePulse(config)
-    result = cp.index_all(resolved_path)
-
-    click.echo(f"Files indexed: {result.files_indexed}")
-    click.echo(f"Symbols found: {result.symbols_found}")
-    click.echo(f"Edges found: {result.edges_found}")
-    if result.errors:
-        for err in result.errors[:5]:
-            click.echo(f"Error: {err}", err=True)
-
-    if watch:
-        click.echo(f"Watching {resolved_path} for changes...")
-        w = FileWatcher(resolved_path, cp, debounce_ms=config.watch_debounce_ms)
-
-        def on_index(msg: str) -> None:
-            click.echo(msg)
-
-        w.on_index = on_index
-        try:
-            w.start()
-            import time as _time
-            while True:
-                _time.sleep(1)
-        except KeyboardInterrupt:
-            w.stop()
-            click.echo("\nWatcher stopped.")
+    ctx.invoke(index, path=path, watch=watch, use_scip=use_scip)
 
 
-def _xml_escape(s: str) -> str:
-    return s.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+def _node_json(n) -> dict:
+    return {"id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.line_start}
 
 
 def _export_gexf(
@@ -738,7 +650,7 @@ def _export_gexf(
             if source_node:
                 src = node_map.get(source_node["id"])
         if src and tgt:
-            ek = _xml_escape(e["kind"])
+            ek = escape(e["kind"], {"\"": "&quot;"})
             edge_xml.append(f'    <edge id="{i}" source="{src}" target="{tgt}" label="{ek}"/>')
             matched_edges += 1
 
@@ -756,10 +668,10 @@ def _export_gexf(
     for n in nodes:
         sid = node_map[n["id"]]
         label_raw = n["name"]
-        label = _xml_escape(label_raw.split(":")[-1] if ":" in label_raw else label_raw)[:80]
-        kind = _xml_escape(n["kind"])
-        file_ = _xml_escape(n["file_path"][:60])
-        lang = _xml_escape(n["language"])
+        label = escape(label_raw.split(":")[-1] if ":" in label_raw else label_raw, {"\"": "&quot;"})[:80]
+        kind = escape(n["kind"], {"\"": "&quot;"})
+        file_ = escape(n["file_path"][:60], {"\"": "&quot;"})
+        lang = escape(n["language"], {"\"": "&quot;"})
         lines.append(f'    <node id="{sid}" label="{label}">')
         lines.append('      <attvalues>')
         lines.append(f'        <attvalue for="kind" value="{kind}"/>')

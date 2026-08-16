@@ -36,7 +36,7 @@ dependencies = [
     "tree-sitter-python>=0.23",
     "sqlite-utils>=3.0",
     "watchdog>=6.0",
-    "mcp>=1.0",
+    "mcp>=1.0,<2.0",
     "requests>=2.31",
 ]
 
@@ -57,9 +57,8 @@ scala = ["tree-sitter-scala>=0.23"]
 all = [
     "codepulse[python,typescript,go,java,rust,ruby,php,c,cpp,swift,kotlin,dart,scala]",
 ]
-codegraph = ["codegraph>=1.0"]
 jedi = ["jedi>=0.19"]
-scip = ["protobuf>=5.0"]
+scip = []
 
 [project.urls]
 Homepage = "https://github.com/K-naman-T/codepulse"

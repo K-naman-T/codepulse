@@ -18,10 +18,11 @@ def _extract(result: tuple) -> str:
 
 
 @pytest.fixture
-def server():
+def server(tmp_path):
     if create_server is None:
         pytest.skip("mcp package not installed")
-    return create_server()
+    config = CodePulseConfig(data_dir=str(tmp_path / ".codepulse"))
+    return create_server(config=config)
 
 
 EXPECTED_TOOLS = {

@@ -99,78 +99,50 @@ def index_routes(project_root: str, db: GraphDB, parser: SourceParser) -> int:
     count = 0
     root = Path(project_root)
 
+    targets: dict[str, tuple[Any, str]] = {
+        "django": (lambda root: root.rglob("urls.py"), "python"),
+        "express": (
+            lambda root: itertools.chain(root.rglob("*.js"), root.rglob("*.ts")),
+            "typescript",
+        ),
+        "flask": (lambda root: root.rglob("*.py"), "python"),
+        "fastapi": (lambda root: root.rglob("*.py"), "python"),
+    }
+
     for framework in frameworks:
         patterns = FRAMEWORK_PATTERNS.get(framework, [])
-
-        if framework == "django":
-            for urls_file in root.rglob("urls.py"):
-                try:
-                    content = urls_file.read_text()
-                    for pat_def in patterns:
-                        for match in re.finditer(pat_def["pattern"], content):
-                            url_pattern = match.group(1)
-                            handler = match.group(pat_def.get("handler_group", 1)) if pat_def.get("handler_group") else None
-                            name = handler or url_pattern
-                            node_id = f"{urls_file}:route:{url_pattern}"
-                            node = Node(
-                                id=node_id,
-                                file_path=str(urls_file.resolve()),
-                                name=url_pattern,
-                                kind="route",
-                                signature=f"{framework}: {url_pattern} → {handler or 'unknown'}",
-                                language="python",
-                            )
-                            db.upsert_node(node)
-                            count += 1
-                except (OSError, UnicodeDecodeError):
-                    logger.warning("Could not read %s for django route detection", urls_file)
-
-        elif framework == "express":
-            for js_file in itertools.chain(root.rglob("*.js"), root.rglob("*.ts")):
-                try:
-                    content = js_file.read_text()
-                    for pat_def in patterns:
-                        for match in re.finditer(pat_def["pattern"], content):
-                            url_pattern = match.group(1)
-                            handler = match.group(pat_def.get("handler_group", 1))
-                            node_id = f"{js_file}:route:{url_pattern}"
-                            node = Node(
-                                id=node_id,
-                                file_path=str(js_file.resolve()),
-                                name=url_pattern,
-                                kind="route",
-                                signature=f"{framework}: {url_pattern} → {handler}",
-                                language="typescript",
-                            )
-                            db.upsert_node(node)
-                            count += 1
-                except (OSError, UnicodeDecodeError):
-                    logger.warning("Could not read %s for express route detection", js_file)
-
-        else:
-            for py_file in root.rglob("*.py"):
-                try:
-                    content = py_file.read_text()
-                    for pat_def in patterns:
-                        for match in re.finditer(pat_def["pattern"], content):
-                            url_pattern = match.group(1)
-                            name = handler if (handler := match.group(pat_def.get("handler_group", 1)) if pat_def.get("handler_group") else None) else url_pattern
-                            handler_name = handler if pat_def.get("handler_group") else None
+        glob_fn, language = targets[framework]
+        for route_file in glob_fn(root):
+            try:
+                content = route_file.read_text()
+                for pat_def in patterns:
+                    for match in re.finditer(pat_def["pattern"], content):
+                        url_pattern = match.group(1)
+                        handler = (
+                            match.group(pat_def.get("handler_group", 1))
+                            if pat_def.get("handler_group")
+                            else None
+                        )
+                        node_id = f"{route_file}:route:{url_pattern}"
+                        if framework == "django":
+                            sig = f"{framework}: {url_pattern} → {handler or 'unknown'}"
+                        elif framework == "express":
+                            sig = f"{framework}: {url_pattern} → {handler}"
+                        else:
                             sig = f"{framework}: {url_pattern}"
-                            if handler_name:
-                                sig += f" → {handler_name}"
-                            node_id = f"{py_file}:route:{url_pattern}"
-                            node = Node(
-                                id=node_id,
-                                file_path=str(py_file.resolve()),
-                                name=url_pattern,
-                                kind="route",
-                                signature=sig,
-                                language="python",
-                            )
-                            db.upsert_node(node)
-                            count += 1
-                except (OSError, UnicodeDecodeError):
-                    logger.warning("Could not read %s for %s route detection", py_file, framework)
+                            if handler:
+                                sig += f" → {handler}"
+                        node = Node(
+                            id=node_id,
+                            file_path=str(route_file.resolve()),
+                            name=url_pattern,
+                            kind="route",
+                            signature=sig,
+                            language=language,
+                        )
+                        db.upsert_node(node)
+                        count += 1
+            except (OSError, UnicodeDecodeError):
+                logger.warning("Could not read %s for %s route detection", route_file, framework)
 
     return count

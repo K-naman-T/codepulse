@@ -220,7 +220,6 @@ Output: files/sec, symbols/sec, edges/sec, elapsed time, cache hit/skip counts.
 For **type-accurate** cross-file symbol resolution:
 
 ```bash
-pip install protobuf  # required
 npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python
 
 codepulse index . --use-scip
@@ -232,12 +231,10 @@ SCIP resolves `h.process()` → `Helper.process` instead of bare `process`. With
 
 ## Embeddings (Optional)
 
-Semantic similarity search across your codebase:
+Semantic similarity search across your codebase, via the Python API (`codepulse.embeddings.index_embeddings` + `GraphDB.search_similar`). No CLI command ships for this; the codegen surface is library-only.
 
 ```bash
 pip install sentence-transformers
-codepulse embed
-codepulse similar "user authentication"
 ```
 
 ---

@@ -20,7 +20,6 @@ class CodePulseConfig(BaseSettings):
     languages: list[str] = Field(
         default_factory=lambda: ["python", "typescript", "go"]
     )
-    use_codegraph: bool = True
     use_scip: bool = False
 
     watch_debounce_ms: int = 500
